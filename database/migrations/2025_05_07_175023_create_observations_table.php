@@ -35,6 +35,8 @@ return new class extends Migration
             $table->string('time_zone')->nullable();
             $table->timestamp('inat_created_at')->nullable();
             $table->timestamp('inat_updated_at')->nullable();
+            $table->foreignId('district_id')->nullable()->constrained('regions');
+            $table->foreignId('state_id')->nullable()->constrained('regions');
             $table->timestamps();
         });
     }

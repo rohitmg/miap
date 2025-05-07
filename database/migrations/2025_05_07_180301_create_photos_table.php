@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('photos', function (Blueprint $table) {
             $table->id();
             $table->foreignId('observation_id')->constrained()->onDelete('cascade');
-            $table->bigInteger('inat_photo_id')->nullable()->index();
+            $table->bigInteger('photo_id')->nullable()->index();
             $table->string('url')->nullable();
             $table->string('license')->nullable();
             $table->string('attribution')->nullable();
