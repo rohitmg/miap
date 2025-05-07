@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use League\Csv\Reader;
 use League\Csv\Statement;
 use Illuminate\Support\Carbon;
+use App\Services\AssignRegionService;
 
 class ImportObservationsCommand extends Command
 {
@@ -20,6 +21,7 @@ class ImportObservationsCommand extends Command
 
     protected $userCache = [];
     protected $taxonCache = [];
+
 
     public function handle()
     {
@@ -43,12 +45,20 @@ class ImportObservationsCommand extends Command
         // Second: Import unique taxa
         $this->importTaxa($records);
 
-        // Third: Import observations (batched, safe)
+        // Third: Import observations (batched)
         $this->importObservations($records, $total);
 
+        // Fourth: Import photos
         $this->importPhotos($records);
 
+        // Fifth: Assign regions using spatial query
+        $this->info("Assigning regions to observations...");
+        app(AssignRegionService::class)->assignRegions();
+
+        $this->info("All import tasks completed successfully.");
+        return Command::SUCCESS;
     }
+
 
 
     protected function importUsers(array $records): void
@@ -61,7 +71,7 @@ class ImportObservationsCommand extends Command
         $newUsers = [];
         foreach ($records as $row) {
             $inatId = $row['user_id'];
-        // dd(!$inatId ,isset($existingSet[$inatId]));
+            // dd(!$inatId ,isset($existingSet[$inatId]));
             if (!$inatId || isset($existingSet[$inatId])) continue;
 
             $newUsers[$inatId] = [
@@ -177,50 +187,50 @@ class ImportObservationsCommand extends Command
     }
 
     protected function importPhotos(array $records): void
-{
-    $this->info("Importing photos...");
+    {
+        $this->info("Importing photos...");
 
-    $photoBatch = [];
-    $batchSize = 5000;
-    $inserted = 0;
+        $photoBatch = [];
+        $batchSize = 2500;
+        $inserted = 0;
 
-    // Create a mapping from inat_id to internal observation ID
-    $observationIds = Observation::pluck('id', 'inat_id')->toArray();
+        // Create a mapping from inat_id to internal observation ID
+        $observationIds = Observation::pluck('id', 'inat_id')->toArray();
 
-    foreach ($records as $record) {
-        $inatId = $record['id'] ?? null;
-        $url = $record['image_url'] ?? null;
+        foreach ($records as $record) {
+            $inatId = $record['id'] ?? null;
+            $url = $record['image_url'] ?? null;
 
-        if (!$inatId || !$url || !isset($observationIds[$inatId])) {
-            continue;
+            if (!$inatId || !$url || !isset($observationIds[$inatId])) {
+                continue;
+            }
+
+            $photoBatch[] = [
+                'observation_id' => $observationIds[$inatId],
+                'photo_id' => null,
+                'url' => $url,
+                'license' => $record['license'] ?? null,
+                'attribution' => $record['user_login'] ?? null,
+                'is_primary' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if (count($photoBatch) === $batchSize) {
+                Photo::insert($photoBatch);
+                $inserted += $batchSize;
+                $this->info("Inserted $inserted photos...");
+                $photoBatch = [];
+            }
         }
 
-        $photoBatch[] = [
-            'observation_id' => $observationIds[$inatId],
-            'photo_id' => null,
-            'url' => $url,
-            'license' => $record['license'] ?? null,
-            'attribution' => $record['user_login'] ?? null,
-            'is_primary' => true,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ];
-
-        if (count($photoBatch) === $batchSize) {
+        if (count($photoBatch)) {
             Photo::insert($photoBatch);
-            $inserted += $batchSize;
-            $this->info("Inserted $inserted photos...");
-            $photoBatch = [];
+            $inserted += count($photoBatch);
         }
-    }
 
-    if (count($photoBatch)) {
-        Photo::insert($photoBatch);
-        $inserted += count($photoBatch);
+        $this->info("Photos imported: $inserted");
     }
-
-    $this->info("Photos imported: $inserted");
-}
 
 
 
