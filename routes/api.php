@@ -10,7 +10,8 @@ use App\Http\Controllers\Api\{
     QualityController,
     AnalysisController,
     DownloadController,
-    RegionBoundaryController
+    RegionBoundaryController,
+    RegionStatsController
 };
 
 Route::prefix('v1')->group(function () {
@@ -27,6 +28,23 @@ Route::prefix('v1')->group(function () {
         Route::get('states/{state}/districts',                       [RegionBoundaryController::class, 'districtsByState']);
         Route::get('districts/{district}',                           [RegionBoundaryController::class, 'district']);
     });
+
+    Route::prefix('stats')->group(function () { // Or 'region-stats'
+        // Country Level Stats
+        Route::get('country',         [RegionStatsController::class, 'countryStats']); // Stats for the whole country
+
+        // State Level Stats
+        Route::get('states',          [RegionStatsController::class, 'allStatesStats']); // Summary stats for all states (e.g., a list)
+        Route::get('states/{state}',  [RegionStatsController::class, 'stateStats']);    // Specific stats for a single state
+
+        // District Level Stats
+        Route::get('districts',                                      [RegionStatsController::class, 'allDistrictsStats']);    // Summary stats for all districts (less common, might be too much data)
+        Route::get('states/{state}/districts',                       [RegionStatsController::class, 'districtsStatsByState']); // Stats for all districts within a specific state
+        Route::get('districts/{district}',                           [RegionStatsController::class, 'districtStats']);       // Specific stats for a single district
+    });
+
+
+
     // 1. Spatial Distribution
     Route::get('map/choropleth', [MapController::class, 'choropleth']);
     Route::get('map/spread', [MapController::class, 'spread']);

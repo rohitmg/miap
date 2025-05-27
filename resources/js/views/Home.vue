@@ -1,5 +1,5 @@
 <template>
-    <div class="p-2 ">
+    <div class="p-2a ">
         <!-- <h1>Home Page</h1> -->
         <!-- <router-link to="/about">Go to About</router-link> -->
         <Map />
@@ -7,5 +7,5 @@
 </template>
 
 <script setup>
-import Map from '../Componants/Map.vue'
+import Map from '../Componants/map/MapView.vue'
 </script>
