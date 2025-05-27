@@ -17,6 +17,7 @@ return new class extends Migration
         Schema::create('regions', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+            $table->string('state_name')->nullable();
             $table->enum('level', ['country', 'state', 'district']);
             $table->foreignId('parent_id')->nullable()->constrained('regions')->nullOnDelete();
             $table->unsignedBigInteger('original_id')->nullable();
@@ -24,6 +25,8 @@ return new class extends Migration
             $table->double('shape_area')->nullable();
             $table->geometry('boundary', 'MULTIPOLYGON', 4326); // EPSG:4326 standard for lat/lon
             $table->timestamps();
+
+            $table->unique(['level', 'name', 'state_name'], 'regions_level_name_state_idx');
         });
     }
 
