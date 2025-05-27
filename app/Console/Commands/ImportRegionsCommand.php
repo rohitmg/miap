@@ -4,124 +4,144 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use App\Models\Region;
 
 class ImportRegionsCommand extends Command
 {
-    protected $signature = 'regions:import {--file= : Path to GeoJSON file}';
-    protected $description = 'Import regions from a GeoJSON file into the regions table';
+    protected $signature   = 'regions:import {--file= : path to districts geojson}';
+    protected $description = 'Bulk-import districts and dissolve states & country';
 
-    public function handle()
+    private const SRID       = 4326;
+    private const BATCH      = 400;
+    private const GRID_TOLER = 0.0001;   // ≈ 11 m
+
+    /* -------------------------------------------------------------- */
+    public function handle(): int
     {
         $path = $this->option('file') ?? public_path('data/regions.geojson');
-
-        if (!file_exists($path)) {
-            $this->error("File not found: {$path}");
-            return Command::FAILURE;
+        if (!is_readable($path)) {
+            $this->error("File not found: $path");
+            return self::FAILURE;
         }
 
-        $geojson = json_decode(file_get_contents($path), true);
-
-        if (!isset($geojson['features'])) {
-            $this->error("Invalid GeoJSON file");
-            return Command::FAILURE;
+        $json = json_decode(file_get_contents($path), true);
+        if (!isset($json['features'])) {
+            $this->error('Invalid GeoJSON');
+            return self::FAILURE;
         }
 
-        $stateNames = [];
-
-        // First pass: insert all districts
-        foreach ($geojson['features'] as $feature) {
-            $props = $feature['properties'];
-            if (!isset($props['dtname'])) continue;
-
-            $stateName = ucwords(strtolower(trim($props['stname'])));
-            $districtName = ucwords(strtolower(trim($props['dtname'])));
-            $geometry = json_encode($feature['geometry']);
-
-            $stateNames[$stateName] = true;
-
-            // Insert district
-            Region::create([
-                'name' => $districtName,
-                'level' => 'district',
-                'original_id' => $props['id'] ?? null,
-                'shape_length' => $props['SHAPE_Length'] ?? null,
-                'shape_area' => $props['SHAPE_Area'] ?? null,
-                'boundary' => DB::raw("ST_Multi(ST_GeomFromGeoJSON('{$geometry}'))"),
-            ]);
-
-            $this->info("Imported district: {$districtName}");
-        }
-
-        $states = [];
-
-        // Second pass: insert states after computing their geometry
-        foreach (array_keys($stateNames) as $stateName) {
-            $districtNames = collect($geojson['features'])
-                ->filter(fn($f) => isset($f['properties']['dtname']) && strtolower($f['properties']['stname']) === strtolower($stateName))
-                ->map(fn($f) => ucwords(strtolower(trim($f['properties']['dtname']))))
-                ->unique()
-                ->values()
-                ->toArray();
-
-            if (empty($districtNames)) {
-                $this->warn("No districts found for state: {$stateName}");
+        /* -------- build PHP row buffer -------- */
+        $bar  = $this->output->createProgressBar(count($json['features']));
+        $rows = [];
+        foreach ($json['features'] as $f) {
+            $p = $f['properties'] ?? [];
+            if (empty($p['dtname'])) {
+                $bar->advance();
                 continue;
             }
 
-            $mergedGeom = DB::table('regions')
-                ->where('level', 'district')
-                ->whereIn('name', $districtNames)
-                ->selectRaw('ST_AsText(ST_Union(boundary)) as geom')
-                ->value('geom');
-
-
-            if (!$mergedGeom) {
-                $this->warn("Could not compute geometry for state: {$stateName}");
-                continue;
-            }
-
-            $state = Region::create([
-                'name' => $stateName,
-                'level' => 'state',
-                'boundary' => DB::raw("ST_GeomFromText('{$mergedGeom}', 4326)"),
-            ]);
-
-            // Update districts with parent_id
-            $districtNames = collect($geojson['features'])
-                ->filter(fn($f) => isset($f['properties']['dtname']) && strtolower($f['properties']['stname']) === strtolower($stateName))
-                ->map(fn($f) => ucwords(strtolower(trim($f['properties']['dtname']))))
-                ->unique()
-                ->values()
-                ->toArray();
-
-            if (!empty($districtNames)) {
-                Region::where('level', 'district')
-                    ->whereIn('name', $districtNames)
-                    ->update(['parent_id' => $state->id]);
-            } else {
-                $this->warn("No districts found to assign for state: {$stateName}");
-            }
-
-
-            $states[] = $state;
-            $this->info("Created state: {$stateName}");
+            $rows[] = [
+                'name'         => ucwords(strtolower(trim($p['dtname']))),
+                'state_name'   => ucwords(strtolower(trim($p['stname']))),
+                'level'        => 'district',
+                'original_id'  => $p['id'] ?? null,
+                'shape_length' => $p['SHAPE_Length'] ?? null,
+                'shape_area'   => $p['SHAPE_Area']  ?? null,
+                'geom_json'    => json_encode($f['geometry']),
+                'ts'           => now(),
+            ];
+            $bar->advance();
+        }
+        $bar->finish();
+        $this->newLine();
+        if (!$rows) {
+            $this->info('Nothing to import');
+            return self::SUCCESS;
         }
 
-        // Final step: create the country by union of all state geometries
-        $countryGeom = DB::table('regions')
-            ->where('level', 'state')
-            ->selectRaw('ST_Union(boundary) as geom')
-            ->value('geom');
+        /* ---------------------------------------------------------- */
+        DB::transaction(function () use ($rows) {
 
-        Region::create([
-            'name' => 'India',
-            'level' => 'country',
-            'boundary' => DB::raw("'$countryGeom'::geometry"),
-        ]);
+            /* 1. districts -------------------------------------------------- */
+            foreach (array_chunk($rows, self::BATCH) as $chunk) {
+                $vals = implode(',', array_fill(
+                    0,
+                    count($chunk),
+                    "(?,?,?,?,?,?, ST_SetSRID(ST_GeomFromGeoJSON(?)," . self::SRID . "),?,?)"
+                ));
 
-        $this->info("Created country: India");
+                $bind = [];
+                foreach ($chunk as $r) {
+                    array_push(
+                        $bind,
+                        $r['name'],
+                        $r['state_name'],
+                        $r['level'],
+                        $r['original_id'],
+                        $r['shape_length'],
+                        $r['shape_area'],
+                        $r['geom_json'],
+                        $r['ts'],
+                        $r['ts']
+                    );
+                }
+                DB::insert("
+                    INSERT INTO regions
+                      (name,state_name,level,original_id,shape_length,shape_area,boundary,created_at,updated_at)
+                    VALUES $vals
+                    ON CONFLICT (level,name,state_name) DO NOTHING
+                ", $bind);
+            }
+            $this->info('✓ districts inserted');
 
-        return Command::SUCCESS;
+            /* 2. dissolve states ------------------------------------------- */
+            DB::statement("
+              INSERT INTO regions (name,state_name,level,boundary,created_at,updated_at)
+              SELECT  state_name,               -- name
+                      state_name,               -- state_name (not NULL)
+                      'state',
+                      ST_Multi(
+                        ST_UnaryUnion(
+                          ST_Collect(
+                            ST_SnapToGrid(boundary, ?)
+                          )
+                        )
+                      )::geometry(MultiPolygon," . self::SRID . "),
+                      NOW(),NOW()
+              FROM   regions
+              WHERE  level = 'district'
+              GROUP  BY state_name
+              ON CONFLICT (level,name,state_name) DO NOTHING
+            ", [self::GRID_TOLER]);
+            $this->info('✓ states dissolved');
+
+            /* 3. link districts → states ----------------------------------- */
+            DB::update("
+              UPDATE regions d
+              SET    parent_id = s.id
+              FROM   regions s
+              WHERE  d.level       = 'district'
+                AND  s.level       = 'state'
+                AND  d.state_name  = s.name
+            ");
+
+            /* 4. dissolve country ------------------------------------------ */
+            DB::statement("
+              INSERT INTO regions (name,state_name,level,boundary,created_at,updated_at)
+              SELECT 'India','India','country',
+                     ST_Multi(
+                       ST_UnaryUnion(
+                         ST_Collect(boundary)
+                       )
+                     )::geometry(MultiPolygon," . self::SRID . "),
+                     NOW(),NOW()
+              FROM regions
+              WHERE level = 'state'
+              ON CONFLICT (level,name,state_name) DO NOTHING
+            ");
+            $this->info('✓ country dissolved');
+        });
+
+        $this->info('🎉 import finished');
+        return self::SUCCESS;
     }
 }

@@ -1,10 +1,11 @@
 <template>
-    <div>
-        <h1>Home Page</h1>
-        <router-link to="/about">Go to About</router-link>
+    <div class="p-2 ">
+        <!-- <h1>Home Page</h1> -->
+        <!-- <router-link to="/about">Go to About</router-link> -->
+        <Map />
     </div>
 </template>
 
 <script setup>
-// Your script here
+import Map from '../Componants/Map.vue'
 </script>

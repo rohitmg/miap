@@ -1,10 +1,10 @@
 <template>
     <div>
-        <h1>About Page</h1>
-        <router-link to="/">Go to Home</router-link>
+        <ChoroplethMap />
     </div>
 </template>
 
 <script setup>
+import ChoroplethMap from "../Componants/ChoroplethMap.vue"
 // Your script here
 </script>

@@ -14,6 +14,7 @@ class Region extends Model
 
     protected $fillable = [
         'name',
+        'state_name',
         'level',
         'parent_id',
         'original_id',

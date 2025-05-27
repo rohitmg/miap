@@ -28,6 +28,8 @@ class Observation extends Model
         'time_zone',
         'inat_created_at',
         'inat_updated_at',
+        'district_id',
+        'state_id'
     ];
 
     public function user()
