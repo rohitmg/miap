@@ -4,15 +4,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\{
     MapController,
+    RegionBoundaryController,
+    RegionStatsController,
+    DistrictDataController,
     TrendController,
     SpeciesController,
     UserController,
     QualityController,
     AnalysisController,
     DownloadController,
-    RegionBoundaryController,
-    RegionStatsController
 };
+
+use App\Models\Observation;
 
 Route::prefix('v1')->group(function () {
     Route::prefix('regions')->group(function () {
@@ -50,6 +53,10 @@ Route::prefix('v1')->group(function () {
     Route::get('map/spread', [MapController::class, 'spread']);
     Route::get('map/richness', [MapController::class, 'richness']);
 
+    Route::prefix('district/{district}')->group(function (){
+        Route::get('observations', [DistrictDataController::class, 'districtObservations']);
+    });
+
     // // 2. Temporal Trends
     // Route::get('trends/observations', [TrendController::class, 'observationTimeline']);
     // Route::get('trends/species', [TrendController::class, 'speciesReporting']);
@@ -79,7 +86,25 @@ Route::prefix('v1')->group(function () {
     // Route::get('download', [DownloadController::class, 'export']);
 });
 
-
+Route::get('/custom', function (Request $request) {
+  $x = Observation::where('taxon_id', 1493141)->get();
+  $fields = ["id","inat_id","user_id","taxon_id","latitude","longitude","observed_on","positional_accuracy","place_guess","quality_grade","license","is_captive","num_identification_agreements","num_identification_disagreements","geoprivacy","location_is_exact","time_zone","inat_created_at","inat_updated_at","district_id","state_id","created_at","updated_at",];
+  echo "<table>";
+  echo "<tr>";
+    foreach($fields as $f){
+        echo "<th>" . $f . "</th>";
+    }
+    echo "</tr>";
+  foreach($x as $y){
+    echo "<tr>";
+    foreach($fields as $f){
+        echo "<td>" . $y->{$f} . "</td>";
+    }
+    echo "</tr>";
+  }
+  echo "</table>";
+  return $x->count();
+});
 
 Route::get('/user', function (Request $request) {
     return $request->user();
