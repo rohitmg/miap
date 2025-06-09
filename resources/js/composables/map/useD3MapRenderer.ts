@@ -1,14 +1,7 @@
 import { ref, onBeforeUnmount, readonly, type Ref, nextTick, watch } from 'vue';
 import * as d3 from 'd3';
 import type { RegionFeature, RegionFeatureCollection, RegionProperties } from '@/types/regions';
-// Ensure FeatureWithStats type is correctly defined and imported.
-// It's expected from useMapDataManager.ts and should include:
-// properties: RegionProperties & {
-//   displayStatValue?: number; // For current mode, used for color and label
-//   observations?: number;    // For tooltip
-//   taxa?: number;            // For tooltip
-//   users?: number;           // For tooltip
-// };
+
 import type { FeatureWithStats } from './useMapDataManager';
 
 const mapElementColors = {
@@ -20,14 +13,15 @@ const mapElementColors = {
 };
 
 const choroplethColors = {
-    minStat: '#961e14', // Your chosen subdued red
-    maxStat: '#3c6c29',  // Your chosen subdued green
-    noData: '#6B7280'    // Grey for no data
+    minStat: '#ad524d',
+    midStat: '#8c7f5e',
+    maxStat: '#00a69f',
+    noData: '#373b40'
 };
 
 const baseStrokeWidth = 1.5;
 const baseNameFontSize = 9;
-const baseStatFontSize = 7;
+const baseStatFontSize = 9;
 const minFontSize = 4;
 
 export function useD3MapRenderer(
@@ -43,6 +37,9 @@ export function useD3MapRenderer(
 
     let svgSel: d3.Selection<SVGSVGElement, unknown, null, undefined> | undefined;
     let gMain: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
+    let gPaths: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
+    let gLabels: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
+
 
     const projection = d3.geoMercator();
     const pathGenerator = d3.geoPath().projection(projection);
@@ -60,35 +57,48 @@ export function useD3MapRenderer(
     };
 
     const colorScale = d3.scaleLinear<string>()
-        .range([choroplethColors.minStat, choroplethColors.maxStat])
+        .range([choroplethColors.minStat, choroplethColors.midStat, choroplethColors.maxStat])
         .interpolate(d3.interpolateRgb);
+
+    // Inside useD3MapRenderer.ts
 
     watch(statRange, (newRange) => {
         if (!newRange) {
-            console.warn("D3MapRenderer: statRange.value is null/undefined. Defaulting color scale.");
-            // Default to a scale that will likely result in noData color for most inputs
+            console.warn("useD3MapRenderer: statRange.value is null/undefined. Defaulting color scale for noData.");
+            // Set a simple domain that maps to noData color
             colorScale.domain([0, 1]).range([choroplethColors.noData, choroplethColors.noData]);
             return;
         }
-        if (newRange.min === newRange.max) {
-            // If all values are 0, or no data, color everything as 'noData'
-            if (newRange.max === 0) {
-                colorScale.domain([0, 1]).range([choroplethColors.noData, choroplethColors.noData]);
+
+        const { min, max } = newRange;
+
+        if (min === max) {
+            let targetColor;
+            if (max === 0 && min === 0) {
+                targetColor = choroplethColors.noData;
             } else {
-                // If all values are the same non-zero value, color them with maxStat color.
-                // Give the domain a tiny nudge to prevent issues with single value domains if interpolator needs it.
-                colorScale.domain([newRange.min, newRange.min + Math.max(Math.abs(newRange.min * 0.001), 0.001)])
-                          .range([choroplethColors.maxStat, choroplethColors.maxStat]);
+                targetColor = choroplethColors.midStat;
             }
+
+            colorScale.domain([min, min + Math.max(Math.abs(min * 0.00001), 0.000001)])
+                .range([targetColor, targetColor]);
         } else {
-            colorScale.domain([newRange.min, newRange.max])
-                      .range([choroplethColors.minStat, choroplethColors.maxStat]); // Ensure range is reset if it was changed
+            const midpointValue = min + (max - min) / 2;
+
+            if (midpointValue <= min || midpointValue >= max) {
+                console.warn("useD3MapRenderer: Midpoint is too close to min/max. Using 2-color scale.");
+                colorScale.domain([min, max])
+                    .range([choroplethColors.minStat, choroplethColors.maxStat]);
+            } else {
+                colorScale.domain([min, midpointValue, max])
+                    .range([choroplethColors.minStat, choroplethColors.midStat, choroplethColors.maxStat]);
+            }
         }
-         // console.log("D3: Color scale domain updated:", colorScale.domain(), "Range:", colorScale.range());
+
     }, { deep: true, immediate: true });
 
 
-    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>() // ... (same as your provided code)
+    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.5, 25])
         .on('zoom', (event: d3.D3ZoomEvent<SVGSVGElement, unknown>) => {
             if (!gMain) return;
@@ -108,11 +118,21 @@ export function useD3MapRenderer(
             onZoomChange(event.transform, projection, svgWidth.value, svgHeight.value);
         });
 
-    const initializeMap = async () => { /* ... same as your provided code ... */ 
-        if (!svgRefElement.value) { console.error("D3MapRenderer: SVG ref not available."); isInitialized.value = false; return; }
+    const initializeMap = async () => {
+        if (!svgRefElement.value) {
+            console.error("D3MapRenderer: SVG ref not available.");
+            isInitialized.value = false;
+            return;
+        }
         svgSel = d3.select(svgRefElement.value);
         svgSel.selectAll('*').remove();
+
         gMain = svgSel.append('g').attr('class', 'main-map-group');
+
+        gPaths = gMain.append('g').attr('class', 'map-paths');
+        gLabels = gMain.append('g').attr('class', 'map-labels');
+
+
         await nextTick();
         svgWidth.value = svgRefElement.value.clientWidth || 600;
         svgHeight.value = svgRefElement.value.clientHeight || 400;
@@ -134,28 +154,39 @@ export function useD3MapRenderer(
             }
         });
         if (svgRefElement.value) resizeObserver.observe(svgRefElement.value);
-        isInitialized.value = true; 
+        isInitialized.value = true;
         console.log("D3 Map Initialized and Ready");
     };
-    
-    const zoomToFit = (features: RegionFeatureCollection<Geometry, RegionProperties & { displayStatValue?: number }> | null, duration: number = 750) => { /* ... same as your provided code ... */ 
-        if (!svgSel || !gMain || !features || features.features.length === 0 || svgWidth.value === 0 || svgHeight.value === 0) { if (svgSel && zoomBehavior) { const identityTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(1); svgSel.transition("zoom-reset-no-features").duration(duration).call(zoomBehavior.transform, identityTransform); } return; } const [[x0, y0], [x1, y1]] = pathGenerator.bounds(features); if (!isFinite(x0) || !isFinite(y0) || !isFinite(x1) || !isFinite(y1) || (x1 - x0 === 0 && y1 - y0 === 0)) { let targetTransform = d3.zoomIdentity; if (features.features.length > 0) { const firstFeatureCentroid = pathGenerator.centroid(features.features[0]); if (isFinite(firstFeatureCentroid[0]) && isFinite(firstFeatureCentroid[1])) { const defaultScale = features.features.length === 1 ? Math.min(12, zoomBehavior.scaleExtent()[1]) : 2; targetTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(defaultScale).translate(-firstFeatureCentroid[0], -firstFeatureCentroid[1]); } } svgSel.transition("zoom-invalid-bounds").duration(duration).call(zoomBehavior.transform, targetTransform); return; } const newScale = Math.min(zoomBehavior.scaleExtent()[1], 0.9 / Math.max((x1 - x0) / svgWidth.value, (y1 - y0) / svgHeight.value)); const newTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(newScale).translate(-(x0 + x1) / 2, -(y0 + y1) / 2); svgSel.transition("zoom-fit").duration(duration).call(zoomBehavior.transform, newTransform);
+
+    const zoomToFit = (features: RegionFeatureCollection<Geometry, RegionProperties & { displayStatValue?: number }> | null, duration: number = 750) => {
+        if (!svgSel || !gMain || !features || features.features.length === 0 || svgWidth.value === 0 || svgHeight.value === 0) {
+            if (svgSel && zoomBehavior) {
+                const identityTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(1);
+                svgSel.transition("zoom-reset-no-features").duration(duration).call(zoomBehavior.transform, identityTransform);
+            }
+            return;
+        }
+        const [[x0, y0], [x1, y1]] = pathGenerator.bounds(features);
+        if (!isFinite(x0) || !isFinite(y0) || !isFinite(x1) || !isFinite(y1) || (x1 - x0 === 0 && y1 - y0 === 0)) {
+            let targetTransform = d3.zoomIdentity;
+            if (features.features.length > 0) {
+                const firstFeatureCentroid = pathGenerator.centroid(features.features[0]);
+                if (isFinite(firstFeatureCentroid[0]) && isFinite(firstFeatureCentroid[1])) {
+                    const defaultScale = features.features.length === 1 ? Math.min(12, zoomBehavior.scaleExtent()[1]) : 2;
+                    targetTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(defaultScale).translate(-firstFeatureCentroid[0], -firstFeatureCentroid[1]);
+                }
+            }
+            svgSel.transition("zoom-invalid-bounds").duration(duration).call(zoomBehavior.transform, targetTransform);
+            return;
+        }
+        const newScale = Math.min(zoomBehavior.scaleExtent()[1], 0.9 / Math.max((x1 - x0) / svgWidth.value, (y1 - y0) / svgHeight.value));
+        const newTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(newScale).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
+        svgSel.transition("zoom-fit").duration(duration).call(zoomBehavior.transform, newTransform);
     };
 
     const renderPathsAndLabels = (featureData: FeatureWithStats[]) => {
         if (!gMain || !svgSel) return;
-
-        // Your debugging logs - useful! Keep them during debugging.
-        // console.log("D3: Rendering paths/labels. Feature count:", featureData.length);
-        // if (featureData.length > 0) {
-        //     console.log("D3: First feature properties for rendering:", JSON.parse(JSON.stringify(featureData[0].properties)));
-        //     console.log("D3: Current colorScale domain:", colorScale.domain(), "Range:", colorScale.range(), "Current statRange from prop:", statRange.value);
-        // }
-
-        // --- Paths (Regions) ---
-        // REMOVED DUPLICATE JOIN BLOCK that was here in your provided code.
-        // This is the single, correct join block for paths:
-        gMain.selectAll<SVGPathElement, FeatureWithStats>('path.region')
+        gPaths.selectAll<SVGPathElement, FeatureWithStats>('path.region')
             .data(featureData, d => String(d.properties.id))
             .join(
                 enter => enter.append('path')
@@ -164,10 +195,8 @@ export function useD3MapRenderer(
                     .attr('fill', d => {
                         const statVal = d.properties.displayStatValue;
                         const color = (statVal !== undefined && isFinite(statVal)) ? colorScale(statVal) : choroplethColors.noData;
-                        // console.log(`D3 Path Enter: Feat ID ${d.properties.id}, StatVal: ${statVal}, Color: ${color}, Domain: ${colorScale.domain()}, Range: ${colorScale.range()}`);
                         return color;
                     })
-                    // .attr('value', d => d.properties.displayStatValue) // HTML 'value' attr is not standard for SVG paths & not used
                     .attr('stroke', mapElementColors.stroke)
                     .attr('stroke-width', baseStrokeWidth / currentTransform.value.k)
                     .style('opacity', 0)
@@ -175,9 +204,9 @@ export function useD3MapRenderer(
                     .on('mouseenter', function (event, d) {
                         d3.select(this).attr('fill', mapElementColors.hoverFill).raise();
                         tooltip.name.value = d.properties.name;
-                        tooltip.observations.value = d.properties.observations; // EXPECTS this property
-                        tooltip.taxa.value = d.properties.taxa;             // EXPECTS this property
-                        tooltip.users.value = d.properties.users;           // EXPECTS this property
+                        tooltip.observations.value = d.properties.observations;
+                        tooltip.taxa.value = d.properties.taxa;
+                        tooltip.users.value = d.properties.users;
                         tooltip.x.value = event.pageX;
                         tooltip.y.value = event.pageY;
                         tooltip.visible.value = true;
@@ -195,16 +224,12 @@ export function useD3MapRenderer(
                     .attr('fill', d => {
                         const statVal = d.properties.displayStatValue;
                         const color = (statVal !== undefined && isFinite(statVal)) ? colorScale(statVal) : choroplethColors.noData;
-                        // console.log(`D3 Path Update: Feat ID ${d.properties.id}, StatVal: ${statVal}, Color: ${color}`);
                         return color;
                     }),
                 exit => exit
                     .call(s => s.transition("exit-fade").duration(300).style('opacity', 0).remove())
             );
 
-        // --- Labels (Modified for two lines: Name + Stat Value) ---
-        // ... (Label logic remains the same as the version I provided previously, 
-        //      ensure it uses d.properties.displayStatValue for the stat text) ...
         const labels = gMain.selectAll<SVGTextElement, FeatureWithStats>('text.label')
             .data(featureData, d => String(d.properties.id));
         labels.exit().transition("exit-label-fade").duration(300).style('opacity', 0).remove();
@@ -214,8 +239,17 @@ export function useD3MapRenderer(
             .style('pointer-events', 'none').style('user-select', 'none')
             .style('text-shadow', `0 0 2px ${mapElementColors.labelShadow}, 0 0 4px ${mapElementColors.labelShadow}`)
             .style('opacity', 0);
-        labelsEnter.append('tspan').attr('class', 'label-name').attr('fill', mapElementColors.labelName).attr('dy', "-0.25em");
-        labelsEnter.append('tspan').attr('class', 'label-stat-value').attr('fill', mapElementColors.labelStatValue).attr('dy', "0.9em");
+
+        labelsEnter.append('tspan')
+            .attr('class', 'label-name')
+            .attr('fill', mapElementColors.labelName)
+            .attr('dy', "-0.25em"); // Name tspan (shifted up slightly)
+
+        labelsEnter.append('tspan')
+            .attr('class', 'label-stat-value')
+            .attr('fill', mapElementColors.labelStatValue)
+            .attr('dy', "1.2em"); // MODIFIED: Increased dy for more vertical spacing (was "0.9em")
+
         labels.merge(labelsEnter)
             .attr('x', d => pathGenerator.centroid(d)[0])
             .attr('y', d => pathGenerator.centroid(d)[1])
@@ -227,8 +261,16 @@ export function useD3MapRenderer(
                 const statText = (statVal !== undefined && isFinite(statVal) && k > 0.7) ? statVal.toLocaleString() : '';
                 const textElement = d3.select(this);
                 const centroidX = pathGenerator.centroid(d)[0];
-                textElement.select<SVGTSpanElement>('.label-name').attr('x', centroidX).attr('font-size', `${nameFont}px`).text(d.properties.name);
-                textElement.select<SVGTSpanElement>('.label-stat-value').attr('x', centroidX).attr('font-size', `${statFont}px`).text(statText);
+
+                textElement.select<SVGTSpanElement>('.label-name')
+                    .attr('x', centroidX) // Ensure x is set for each tspan for proper centering
+                    .attr('font-size', `${nameFont}px`)
+                    .text(d.properties.name);
+
+                textElement.select<SVGTSpanElement>('.label-stat-value')
+                    .attr('x', centroidX) // Ensure x is set for each tspan
+                    .attr('font-size', `${statFont}px`)
+                    .text(statText);
             })
             .transition("label-opacity-fade").duration(500).delay(150).style('opacity', 1);
     };
@@ -248,17 +290,43 @@ export function useD3MapRenderer(
         zoomToFit(featuresCollection);
     };
 
-    const clearFeatures = () => { /* ... same ... */ if (gMain) { gMain.selectAll("*").remove(); } lastRenderedFeatures = null; zoomToFit(null); };
-    const destroyMap = () => { /* ... same ... */ if (svgRefElement.value && resizeObserver) { resizeObserver.unobserve(svgRefElement.value); } resizeObserver = null; if (svgSel) { svgSel.on('.zoom', null).on('click', null).on('mousemove', null); svgSel.selectAll('*').remove(); } gMain = undefined; svgSel = undefined; isInitialized.value = false; console.log("D3 Map Destroyed"); };
+    const clearFeatures = () => {
+        if (gPaths) gPaths.selectAll("*").remove();
+        if (gLabels) gLabels.selectAll("*").remove();
+        lastRenderedFeatures = null;
+        zoomToFit(null); // Reset zoom
+    };
+
+    const destroyMap = () => {
+    if (svgRefElement.value && resizeObserver) {
+        resizeObserver.unobserve(svgRefElement.value);
+    }
+    resizeObserver = null;
+    if (svgSel) {
+        svgSel.on('.zoom', null).on('click', null).on('mousemove', null);
+        // svgSel.selectAll('*').remove(); // gMain will be removed or its children
+    }
+    if (gMain) { // Clear children of gMain instead of svgSel directly
+        gMain.selectAll('*').remove();
+        // Optionally remove gMain itself if re-initializeMap always recreates it
+        // gMain.remove(); 
+    }
+    gPaths = undefined;
+    gLabels = undefined;
+    gMain = undefined; // Ensure gMain is also cleared if it's removed
+    svgSel = undefined;
+    isInitialized.value = false;
+    console.log("D3 Map Destroyed");
+};
 
     return {
         initializeMap, renderFeatures, clearFeatures, destroyMap,
         isReady: readonly(isInitialized),
-        choroplethColors: readonly(choroplethColors), // Expose for MapView legend
+        choroplethColors: readonly(choroplethColors),
         projection: readonly(ref(projection)),
         currentTransform: readonly(currentTransform),
         svgWidth: readonly(svgWidth), svgHeight: readonly(svgHeight),
-        tooltip: { 
+        tooltip: {
             visible: readonly(tooltip.visible), name: readonly(tooltip.name),
             observations: readonly(tooltip.observations), taxa: readonly(tooltip.taxa), users: readonly(tooltip.users),
             x: readonly(tooltip.x), y: readonly(tooltip.y),
