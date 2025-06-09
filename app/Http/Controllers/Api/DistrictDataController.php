@@ -40,7 +40,7 @@ class DistrictDataController extends Controller
             // the response from a list of points to groups of points. For plotting individual
             // observation locations, keeping it as a flat array from ->get() is correct.
 
-            return response()->json($observationPoints);
+            return response()->json($observationPoints->toArray());
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json(['message' => 'District not found to fetch observation points.'], 404);
         } catch (\Exception $e) {

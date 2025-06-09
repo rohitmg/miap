@@ -6,6 +6,7 @@ import type { RegionFeature, ViewLevel, RegionProperties } from '@/types/regions
 
 // Define StatMode here or import from a shared types file (e.g., src/types/stats.ts)
 export type StatMode = 'observations' | 'taxa' | 'users';
+export type ObservationDisplayMode = 'none' | 'points' | 'grid' | 'heatmap';
 
 export interface BreadcrumbItem {
     name: string;
@@ -34,6 +35,10 @@ export function useMapNavigationState() {
     const selectedDistrictId = ref<string | number>('');
     const selectedMode = ref<StatMode>('observations'); // Default mode
     const breadcrumbs = ref<BreadcrumbItem[]>([]);
+    const districtObservationDisplayMode = ref<ObservationDisplayMode>('none');
+    const selectedGridSize = ref<number>(1000);
+    const heatmapRadius = ref<number>(40);
+
 
     // --- Computed Properties for Dropdowns ---
     const stateOptions = computed<DropdownOption[]>(() => {
@@ -77,6 +82,14 @@ export function useMapNavigationState() {
         // which then calls useMapDataManager to refresh stats and potentially map colors.
     };
 
+    const setDistrictObservationDisplayMode = (mode: ObservationDisplayMode) => districtObservationDisplayMode.value = mode;
+    const setSelectedGridSize = (sizeInMeters: number) => selectedGridSize.value = sizeInMeters;
+
+    const setHeatmapRadius = (radius:number) => heatmapRadius.value = radius;
+
+    //  --- Helper to reset point display state ---
+    const resetObservationDisplay = () => districtObservationDisplayMode.value = 'none';
+
     const _updateBreadcrumbsInternal = () => {
         const newCrumbs: BreadcrumbItem[] = [];
         if (selectedCountry.value) {
@@ -103,6 +116,7 @@ export function useMapNavigationState() {
     const handleFeatureClick = async (feature: RegionFeature) => {
         if (!feature || !feature.properties) return;
 
+        resetObservationDisplay();
         if (currentViewLevel.value === 'country') {
             // Assumes clicking the country feature means drill down to its states
             // selectedCountry.value should already be this feature if map shows only one country
@@ -126,7 +140,7 @@ export function useMapNavigationState() {
                 // currentViewLevel remains 'district'.
                 // MapView's watcher on selectedDistrictId will trigger dataManager to update featuresToDisplay.
             } else {
-                 console.warn("Clicked district feature not found or state context missing:", feature.properties.name);
+                console.warn("Clicked district feature not found or state context missing:", feature.properties.name);
             }
         }
         // Watchers in MapView.vue on currentViewLevel, selectedStateId, selectedDistrictId
@@ -135,6 +149,7 @@ export function useMapNavigationState() {
 
     const onStateSelected = async () => { // Called by @change on state dropdown
         selectedDistrictId.value = ''; // Clear previous district selection
+        resetObservationDisplay();
         if (selectedStateId.value) {
             currentViewLevel.value = 'district'; // Prepare to show districts for this state
             await regionStore.fetchDistricts(+selectedStateId.value);
@@ -144,6 +159,7 @@ export function useMapNavigationState() {
     };
 
     const onDistrictSelected = () => { // Called by @change on district dropdown
+        resetObservationDisplay();
         // If selectedDistrictId.value is set, MapView's watcher will trigger dataManager
         // to update featuresToDisplay to this specific district.
         // If cleared ("-- Select District --"), featuresToDisplay will show all districts for the current state.
@@ -152,14 +168,14 @@ export function useMapNavigationState() {
 
     const navigateToCrumbByIndex = (index: number) => {
         if (index < 0 || index >= breadcrumbs.value.length) return;
-        
+
         const crumbToNavigate = breadcrumbs.value[index];
 
         // Prevent re-navigation if already exactly at this crumb's state
         const isAlreadyAtCrumb = currentViewLevel.value === crumbToNavigate.level &&
             ((crumbToNavigate.level === 'country' && selectedCountry.value?.properties.id === crumbToNavigate.id) ||
-             (crumbToNavigate.level === 'state' && selectedStateId.value === crumbToNavigate.id) ||
-             (crumbToNavigate.level === 'district' && selectedDistrictId.value === crumbToNavigate.id));
+                (crumbToNavigate.level === 'state' && selectedStateId.value === crumbToNavigate.id) ||
+                (crumbToNavigate.level === 'district' && selectedDistrictId.value === crumbToNavigate.id));
         if (isAlreadyAtCrumb && index === breadcrumbs.value.length - 1) return;
 
         currentViewLevel.value = crumbToNavigate.level;
@@ -177,8 +193,9 @@ export function useMapNavigationState() {
             selectedDistrictId.value = crumbToNavigate.id;
         }
     };
-    
+
     const handleMapBackgroundClick = () => {
+        resetObservationDisplay();
         if (breadcrumbs.value.length > 1) { // If viewing state's districts or a specific district
             navigateToCrumbByIndex(breadcrumbs.value.length - 2); // Go to parent crumb
         } else if (breadcrumbs.value.length === 1 && currentViewLevel.value !== 'country') { // If at state level (showing all states)
@@ -188,31 +205,32 @@ export function useMapNavigationState() {
         }
     };
 
-    // Auto-update breadcrumbs when relevant navigation state changes
-    watch(
-        [selectedCountry, selectedStateId, selectedDistrictId, currentViewLevel, storeStates, storeDistrictsByState],
-        _updateBreadcrumbsInternal,
-        { deep: true, immediate: true } // immediate: true to form initial breadcrumbs
-    );
+    // Auto-update breadcrumbs
+    watch([selectedCountry, selectedStateId, selectedDistrictId], _updateBreadcrumbsInternal, { deep: true });
 
-    // Return all reactive properties and methods to be used by MapView.vue
+    // Watcher to automatically reset observation display if user navigates away from single district view
+    watch([currentViewLevel, selectedDistrictId], ([newLevel, newDistrictId]) => {
+        if (newLevel !== 'district' || !newDistrictId) {
+            if (districtObservationDisplayMode.value !== 'none') {
+                resetObservationDisplay();
+            }
+        }
+    });
+
     return {
-        currentViewLevel: readonly(currentViewLevel),
-        selectedCountry: readonly(selectedCountry), // Expose as readonly if mutations are only via setCountryFeature
-        selectedStateId, // Editable by v-model
-        selectedDistrictId, // Editable by v-model
-        selectedMode, // Editable by click handler in MapView
-        breadcrumbs: readonly(breadcrumbs),
-        stateOptions,
-        districtOptions,
-        
-        setCountryFeature,    // Method for dataManager to set initial/active country feature
-        setSelectedMode,
-        handleFeatureClick,
-        onStateSelected,
-        onDistrictSelected,
-        navigateToCrumbByIndex,
-        handleMapBackgroundClick,
-        // updateBreadcrumbs, // Not typically needed externally due to watcher
+        // --- Existing exports ---
+        currentViewLevel, selectedCountry, selectedStateId,
+        selectedDistrictId, selectedMode, breadcrumbs,
+        stateOptions, districtOptions, setCountryFeature,
+        setSelectedMode, handleFeatureClick, onStateSelected,
+        onDistrictSelected, navigateToCrumbByIndex, handleMapBackgroundClick,
+       
+        districtObservationDisplayMode,
+        selectedGridSize,
+        setDistrictObservationDisplayMode,
+        setSelectedGridSize,
+
+        heatmapRadius,
+        setHeatmapRadius,
     };
 }

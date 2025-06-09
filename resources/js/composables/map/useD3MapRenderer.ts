@@ -1,7 +1,10 @@
 import { ref, onBeforeUnmount, readonly, type Ref, nextTick, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 import * as d3 from 'd3';
 import type { RegionFeature, RegionFeatureCollection, RegionProperties } from '@/types/regions';
 
+import { useObservationStore } from '@/stores/observations';
+import type { ObservationDisplayMode } from './useMapNavigationState';
 import type { FeatureWithStats } from './useMapDataManager';
 
 const mapElementColors = {
@@ -30,7 +33,15 @@ export function useD3MapRenderer(
     onZoomChange: (transform: d3.ZoomTransform, projection: d3.GeoProjection, width: number, height: number) => void,
     onMapBackgroundClick: () => void,
     statRange: Readonly<Ref<{ min: number; max: number }>>,
+    observationDisplayMode: Readonly<Ref<ObservationDisplayMode>>,
+    selectedGridSize: Readonly<Ref<number>>,
+    selectedDistrictId: Readonly<Ref<string | number>>,
+    currentDistrictFeature: Readonly<Ref<FeatureWithStats | null>>,
+    heatmapRadius: Readonly<Ref<number>>,
+    setGridDensityRange: (min: number, max: number) => void,
 ) {
+    const observationStore = useObservationStore();
+    const { allDistrictObservations } = storeToRefs(observationStore);
     const svgWidth = ref(0);
     const svgHeight = ref(0);
     const isInitialized = ref(false);
@@ -38,6 +49,7 @@ export function useD3MapRenderer(
     let svgSel: d3.Selection<SVGSVGElement, unknown, null, undefined> | undefined;
     let gMain: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
     let gPaths: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
+    let gObservations: d3.Selection<SVGElement, unknown, null, undefined> | undefined;
     let gLabels: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
 
 
@@ -59,8 +71,6 @@ export function useD3MapRenderer(
     const colorScale = d3.scaleLinear<string>()
         .range([choroplethColors.minStat, choroplethColors.midStat, choroplethColors.maxStat])
         .interpolate(d3.interpolateRgb);
-
-    // Inside useD3MapRenderer.ts
 
     watch(statRange, (newRange) => {
         if (!newRange) {
@@ -97,6 +107,12 @@ export function useD3MapRenderer(
 
     }, { deep: true, immediate: true });
 
+    watch([allDistrictObservations, observationDisplayMode, selectedGridSize, currentDistrictFeature], () => {
+        if (isInitialized.value) {
+            renderObservationLayer();
+        }
+    });
+
 
     const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.5, 25])
@@ -130,6 +146,7 @@ export function useD3MapRenderer(
         gMain = svgSel.append('g').attr('class', 'main-map-group');
 
         gPaths = gMain.append('g').attr('class', 'map-paths');
+        gObservations = gMain.append('g').attr('class', 'map-observations');
         gLabels = gMain.append('g').attr('class', 'map-labels');
 
 
@@ -183,6 +200,141 @@ export function useD3MapRenderer(
         const newTransform = d3.zoomIdentity.translate(svgWidth.value / 2, svgHeight.value / 2).scale(newScale).translate(-(x0 + x1) / 2, -(y0 + y1) / 2);
         svgSel.transition("zoom-fit").duration(duration).call(zoomBehavior.transform, newTransform);
     };
+
+    const renderObservationLayer = () => {
+        if (!gObservations || !isInitialized.value) return;
+
+        const mode = observationDisplayMode.value;
+        const districtId = selectedDistrictId.value;
+        const points = districtId ? allDistrictObservations.value[districtId] : null;
+
+        gObservations.selectAll('*').remove();
+
+        if (!points || points.length == 0 || mode == 'none') {
+            return;
+        }
+
+        if (mode === 'points') {
+            gObservations.selectAll('circle.observation-point')
+                .data(points)
+                .enter()
+                .append('circle')
+                .attr('class', 'observation-point')
+                .attr('cx', d => projection([d.longitude, d.latitude])?.[0] ?? -999)
+                .attr('cy', d => projection([d.longitude, d.latitude])?.[1] ?? -999)
+                .attr('r', 1.5 / currentTransform.value.k) // Make points smaller on zoom-out
+                .attr('fill', 'oklch(0.8 0.2 50 / 0.7)') // Example: A bright orange/yellow
+                .style('pointer-events', 'none'); // So they don't block clicks on the polygon
+        } else if (mode === 'grid') {
+            const districtFeature = currentDistrictFeature.value;
+            if (!districtFeature) return;
+
+            // --- CORRECTED & ACCURATE GRID CALCULATION ---
+            const gridSizeMeters = selectedGridSize.value;
+            const [[x0, y0], [x1, y1]] = pathGenerator.bounds(districtFeature); // Screen bounds
+
+            // Find how many grid cells fit across the screen bounds
+            const widthInPixels = x1 - x0;
+            const heightInPixels = y1 - y0;
+            
+            // Convert pixel dimensions back to approximate real-world distance
+            const R = 6371000; // Earth radius in meters
+            const p1Geo = projection.invert!([x0, y0]);
+            const p2Geo = projection.invert!([x1, y0]);
+            const p3Geo = projection.invert!([x0, y1]);
+            const widthInMeters = d3.geoDistance(p1Geo, p2Geo) * R;
+            const heightInMeters = d3.geoDistance(p1Geo, p3Geo) * R;
+
+            // Calculate columns and rows based on real-world distances
+            const nCols = Math.max(1, Math.ceil(widthInMeters / gridSizeMeters));
+            const nRows = Math.max(1, Math.ceil(heightInMeters / gridSizeMeters));
+
+            // Cell dimensions in pixels
+            const cellWidth = widthInPixels / nCols;
+            const cellHeight = heightInPixels / nRows;
+            
+            const gridCells = new Map<string, { count: number; x: number; y: number }>();
+            
+            for (const point of points) {
+                // ... (safety checks for coordinates) ...
+                const p = projection([point.longitude, point.latitude]);
+                if (p && p[0] >= x0 && p[0] <= x1 && p[1] >= y0 && p[1] <= y1) {
+                    // Calculate which grid cell the point falls into
+                    const col = Math.floor((p[0] - x0) / cellWidth);
+                    const row = Math.floor((p[1] - y0) / cellHeight);
+                    const key = `${col},${row}`;
+                    
+                    if (!gridCells.has(key)) {
+                        gridCells.set(key, { 
+                            count: 0, 
+                            x: x0 + col * cellWidth, 
+                            y: y0 + row * cellHeight
+                        });
+                    }
+                    gridCells.get(key)!.count++;
+                }
+            }
+
+            const gridData = Array.from(gridCells.values());
+            const minCount = d3.min(gridData, d => d.count) || 0;
+            const maxCount = d3.max(gridData, d => d.count) || 1;
+            
+            // --- NEW: Update the shared density range for the legend ---
+            setGridDensityRange(minCount, maxCount);
+
+            // Using a vibrant sequential color scale for density
+            const gridColorScale = d3.scaleSequential(d3.interpolateYlOrRd).domain([minCount, maxCount]);
+
+            gObservations.selectAll('rect.grid-cell')
+                .data(gridData)
+                .join('rect')
+                .attr('class', 'grid-cell')
+                .attr('x', d => d.x)
+                .attr('y', d => d.y)
+                .attr('width', cellWidth) // Use calculated pixel width
+                .attr('height', cellHeight) // Use calculated pixel height
+                .attr('fill', d => gridColorScale(d.count))
+                .attr('fill-opacity', 0.6)
+                .style('pointer-events', 'none');
+        } else if (mode === 'heatmap') {
+            const projectedPoints = points.map(p => {
+                if (p && isFinite(p.longitude) && isFinite(p.latitude)) {
+                    return projection([p.longitude, p.latitude]);
+                }
+                return null;
+            }).filter((p): p is [number, number] => p !== null); // Filter out any nulls
+
+            if (projectedPoints.length < 3) { // Density estimation needs at least 3 points to be meaningful
+                console.warn("Not enough valid points to generate a heatmap.");
+                return;
+            }
+
+            // Configure the density estimator
+            const densityData = d3.contourDensity()
+                .x(d => d[0])
+                .y(d => d[1])
+                .size([svgWidth.value, svgHeight.value])
+                .bandwidth(heatmapRadius.value) // Use the reactive radius from the slider
+                .thresholds(20) // More thresholds for a smoother gradient look
+                (projectedPoints);
+
+            // Create a color scale for the heatmap density
+            const maxDensity = d3.max(densityData, d => d.value) || 1;
+            // Using a nice vibrant and perceptually uniform color scheme for heat
+            const heatmapColorScale = d3.scaleSequential(d3.interpolateTurbo)
+                .domain([0, maxDensity]);
+
+            // Draw the heatmap contours
+            gObservations.selectAll('path.heatmap-contour')
+                .data(densityData)
+                .join('path')
+                .attr('class', 'heatmap-contour')
+                .attr('d', d3.geoPath()) // Use a default geoPath since data is already in screen coordinates
+                .attr('fill', d => heatmapColorScale(d.value))
+                .attr('fill-opacity', 0.5) // Use opacity to blend layers
+                .attr('stroke', 'none');
+        }
+    }
 
     const renderPathsAndLabels = (featureData: FeatureWithStats[]) => {
         if (!gMain || !svgSel) return;
@@ -288,6 +440,8 @@ export function useD3MapRenderer(
         projection.fitSize([svgWidth.value, svgHeight.value], featuresCollection as any);
         renderPathsAndLabels(featuresCollection.features as FeatureWithStats[]);
         zoomToFit(featuresCollection);
+
+        renderObservationLayer();
     };
 
     const clearFeatures = () => {
@@ -298,26 +452,26 @@ export function useD3MapRenderer(
     };
 
     const destroyMap = () => {
-    if (svgRefElement.value && resizeObserver) {
-        resizeObserver.unobserve(svgRefElement.value);
-    }
-    resizeObserver = null;
-    if (svgSel) {
-        svgSel.on('.zoom', null).on('click', null).on('mousemove', null);
-        // svgSel.selectAll('*').remove(); // gMain will be removed or its children
-    }
-    if (gMain) { // Clear children of gMain instead of svgSel directly
-        gMain.selectAll('*').remove();
-        // Optionally remove gMain itself if re-initializeMap always recreates it
-        // gMain.remove(); 
-    }
-    gPaths = undefined;
-    gLabels = undefined;
-    gMain = undefined; // Ensure gMain is also cleared if it's removed
-    svgSel = undefined;
-    isInitialized.value = false;
-    console.log("D3 Map Destroyed");
-};
+        if (svgRefElement.value && resizeObserver) {
+            resizeObserver.unobserve(svgRefElement.value);
+        }
+        resizeObserver = null;
+        if (svgSel) {
+            svgSel.on('.zoom', null).on('click', null).on('mousemove', null);
+            // svgSel.selectAll('*').remove(); // gMain will be removed or its children
+        }
+        if (gMain) { // Clear children of gMain instead of svgSel directly
+            gMain.selectAll('*').remove();
+            // Optionally remove gMain itself if re-initializeMap always recreates it
+            // gMain.remove(); 
+        }
+        gPaths = undefined;
+        gLabels = undefined;
+        gMain = undefined; // Ensure gMain is also cleared if it's removed
+        svgSel = undefined;
+        isInitialized.value = false;
+        console.log("D3 Map Destroyed");
+    };
 
     return {
         initializeMap, renderFeatures, clearFeatures, destroyMap,

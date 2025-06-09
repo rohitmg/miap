@@ -53,7 +53,7 @@ Route::prefix('v1')->group(function () {
     Route::get('map/spread', [MapController::class, 'spread']);
     Route::get('map/richness', [MapController::class, 'richness']);
 
-    Route::prefix('district/{district}')->group(function (){
+    Route::prefix('districts/{district}')->group(function (){
         Route::get('observations', [DistrictDataController::class, 'districtObservations']);
     });
 

@@ -76,21 +76,115 @@
                 </div>
             </div>
 
-            <div v-if="mapIsInitialized && dataManager.currentStatRange.value.max > 0">
-                <h3 class="text-sm font-medium text-slate-400 mb-2">Legend ({{ navigation.selectedMode.value }})</h3>
-                <div class="legend bg-slate-700 p-3 rounded-md">
-                    <div class="h-3 md:h-4 w-full rounded-sm"
-                        :style="{ background: `linear-gradient(to right, ${choroplethColorsForTemplate.minStat}, ${choroplethColorsForTemplate.maxStat})` }">
-                    </div>
-                    <div class="flex justify-between text-xs text-slate-300 mt-1">
-                        <span>{{ dataManager.currentStatRange.value.min.toLocaleString() }}</span>
-                        <span>{{ dataManager.currentStatRange.value.max.toLocaleString() }}</span>
-                    </div>
+            <!-- Observation Point Display Options -->
+            <div v-if="navigation.currentViewLevel.value === 'district' && navigation.selectedDistrictId.value">
+                <h3 class="text-sm font-medium text-slate-400 mb-2">Observation Display</h3>
+
+                <!-- Display Mode Buttons -->
+                <div class="mode-selector grid grid-cols-2 gap-1 p-1 bg-slate-700 rounded-md mb-3">
+                    <button @click="navigation.setDistrictObservationDisplayMode('none')"
+                        class="p-2 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        :class="navigation.districtObservationDisplayMode.value === 'none' ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                        Hide
+                    </button>
+                    <button @click="navigation.setDistrictObservationDisplayMode('points')"
+                        class="p-2 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        :class="navigation.districtObservationDisplayMode.value === 'points' ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                        Points
+                    </button>
+                    <button @click="navigation.setDistrictObservationDisplayMode('grid')"
+                        class="p-2 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        :class="navigation.districtObservationDisplayMode.value === 'grid' ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                        Grid
+                    </button>
+                    <button @click="navigation.setDistrictObservationDisplayMode('heatmap')"
+                        class="p-2 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                        :class="navigation.districtObservationDisplayMode.value === 'heatmap' ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                        Heatmap
+                    </button>
+                </div>
+
+                <!-- Grid Size Selector (only visible if grid mode is active) -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'grid'" class="mt-2">
+                    <label for="grid-size" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
+                        <span>Grid Size</span>
+                        <span class="font-mono text-cyan-300">{{ navigation.selectedGridSize.value >= 1000 ?
+                            `${navigation.selectedGridSize.value / 1000}km` : `${navigation.selectedGridSize.value}m`
+                        }}</span>
+                    </label>
+                    <input id="grid-size" type="range"
+                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        min="100" max="10000" step="100" :value="navigation.selectedGridSize.value"
+                        @input="navigation.setSelectedGridSize(Number(($event.target as HTMLInputElement).value))" />
+                </div>
+
+            </div>
+
+            <div v-if="navigation.currentViewLevel.value === 'district' && navigation.selectedDistrictId.value">
+                <h3 class="text-sm font-medium text-slate-400 mb-2">Observation Display</h3>
+
+                <!-- Display Mode Buttons (Unchanged) -->
+                <div class="mode-selector ...">
+                    <!-- ... your buttons for none, points, grid, heatmap ... -->
+                </div>
+
+                <!-- Grid Size Selector (Unchanged) -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'grid'">
+                    <!-- ... your grid size select dropdown ... -->
+                </div>
+
+                <!-- NEW: Heatmap Radius Slider -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'heatmap'" class="mt-2">
+                    <label for="heatmap-radius" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
+                        <span>Heatmap Radius</span>
+                        <span class="font-mono text-cyan-300">{{ navigation.heatmapRadius.value }}px</span>
+                    </label>
+                    <input id="heatmap-radius" type="range"
+                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        min="10" max="100" step="5" :value="navigation.heatmapRadius.value"
+                        @input="navigation.setHeatmapRadius(Number(($event.target as HTMLInputElement).value))" />
                 </div>
             </div>
-            <div v-else-if="mapIsInitialized && navigation.selectedMode.value"
-                class="text-xs text-slate-500 italic mt-2">
-                No {{ navigation.selectedMode.value }} data to display for current view or all values are zero.
+
+            <!-- Legend Section -->
+            <div class="mt-4">
+                <!-- Choropleth Legend (for statistics mode) -->
+                <div
+                    v-if="mapIsInitialized && dataManager.currentStatRange.value.max > 0 && navigation.districtObservationDisplayMode.value === 'none'">
+                    <h3 class="text-sm font-medium text-slate-400 mb-2">Legend ({{ navigation.selectedMode.value }})
+                    </h3>
+                    <div class="legend bg-slate-700 p-3 rounded-md">
+                        <div class="h-3 md:h-4 w-full rounded-sm"
+                            :style="{ background: `linear-gradient(to right, ${d3Renderer.choroplethColors.minStat}, ${d3Renderer.choroplethColors.maxStat})` }">
+                        </div>
+                        <div class="flex justify-between text-xs text-slate-300 mt-1">
+                            <span>{{ dataManager.currentStatRange.value.min.toLocaleString() }}</span>
+                            <span>{{ dataManager.currentStatRange.value.max.toLocaleString() }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NEW: Grid Density Legend -->
+                <div
+                    v-if="mapIsInitialized && navigation.districtObservationDisplayMode.value === 'grid' && dataManager.gridDensityRange.value.max > 0">
+                    <h3 class="text-sm font-medium text-slate-400 mb-2">Grid Legend (Density)</h3>
+                    <div class="legend bg-slate-700 p-3 rounded-md">
+                        <!-- Using a vibrant, sequential color scale for density -->
+                        <div class="h-3 md:h-4 w-full rounded-sm"
+                            style="background: linear-gradient(to right, #fef0d9, #fdcc8a, #fc8d59, #e34a33, #b30000);">
+                        </div>
+                        <div class="flex justify-between text-xs text-slate-300 mt-1">
+                            <span>{{ dataManager.gridDensityRange.value.min.toLocaleString() }}</span>
+                            <span>{{ dataManager.gridDensityRange.value.max.toLocaleString() }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Message for no data -->
+                <div v-else-if="mapIsInitialized && navigation.districtObservationDisplayMode.value === 'none' && navigation.selectedMode.value && dataManager.currentStatRange.value.max === 0"
+                    class="text-xs text-slate-500 italic mt-2">
+                    No {{ navigation.selectedMode.value }} data to display for current view or all values are zero.
+                </div>
             </div>
 
             <div v-if="dataManager.currentError.value"
@@ -133,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, watchEffect, readonly } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, watchEffect, readonly, computed } from 'vue';
 import * as d3 from 'd3';
 
 import { useMapNavigationState, type StatMode } from '@/composables/map/useMapNavigationState';
@@ -148,7 +242,6 @@ const mapIsInitialized = ref(false);
 console.log("MapView.vue: script setup begins");
 
 const navigation = useMapNavigationState();
-// console.log("MapView.vue: useMapNavigationState instantiated", navigation);
 
 const dataManager = useMapDataManager({
     currentViewLevel: navigation.currentViewLevel,
@@ -156,12 +249,17 @@ const dataManager = useMapDataManager({
     currentSelectedStateId: navigation.selectedStateId,
     currentSelectedDistrictId: navigation.selectedDistrictId,
     currentSelectedMode: navigation.selectedMode,
+    districtObservationDisplayMode: navigation.districtObservationDisplayMode,
     setCountryFeature: navigation.setCountryFeature,
 });
-// console.log("MapView.vue: useMapDataManager instantiated", dataManager);
-// Log initial statRange to see its structure immediately after dataManager is created
-// console.log("MapView.vue: Initial dataManager.currentStatRange.value:", dataManager.currentStatRange.value);
 
+
+const currentDistrictFeature = computed(() => {
+    if (navigation.currentViewLevel.value === 'district' && navigation.selectedDistrictId.value) {
+        return dataManager.featuresToDisplay.value?.features[0] as FeatureWithStats | undefined;
+    }
+    return null;
+});
 
 const d3Renderer = useD3MapRenderer(
     svgRefElement,
@@ -170,41 +268,33 @@ const d3Renderer = useD3MapRenderer(
         scaleBarDisplay.update(transform, projection, width, height);
     },
     () => navigation.handleMapBackgroundClick(),
-    dataManager.currentStatRange, // Pass the stat range Ref
-    navigation.selectedMode // Pass selectedMode Ref
+    dataManager.currentStatRange,
+    // Pass the new state refs to the renderer
+    navigation.districtObservationDisplayMode,
+    navigation.selectedGridSize,
+    navigation.selectedDistrictId,
+    currentDistrictFeature,
+    dataManager.setGridDensityRange // <<< THIS IS THE FIX: Pass the function from dataManager
 );
 
-const choroplethColorsForTemplate = d3Renderer.choroplethColors; // Assign to a variable for template
+const choroplethColorsForTemplate = d3Renderer.choroplethColors;
 
-// console.log("MapView.vue: useD3MapRenderer instantiated", d3Renderer);
-// Expose choroplethColors for the legend gradient in the template
 const choroplethColors = d3Renderer.choroplethColors;
 
-
 const scaleBarDisplay = useScaleBar();
-// console.log("MapView.vue: useScaleBar instantiated", scaleBarDisplay);
-
 
 onMounted(async () => {
-    // console.log("MapView.vue: onMounted - begin");
     if (svgRefElement.value) {
-        await d3Renderer.initializeMap(); // This now sets d3Renderer.isReady.value
-        // console.log("MapView.vue: onMounted - D3 Map Initialized, d3Renderer.isReady:", d3Renderer.isReady.value);
-
+        await d3Renderer.initializeMap(); 
         await dataManager.loadInitialDataAndStats();
-        // console.log("MapView.vue: onMounted - Initial data and stats loaded.");
-
         mapIsInitialized.value = true;
-        // console.log("MapView.vue: onMounted - mapIsInitialized set to true.");
     } else {
-        // console.error("MapView.vue: svgRef is not available on mount.");
         dataManager.setErrorManually("Map canvas could not be initialized.");
     }
-    // console.log("MapView.vue: onMounted - end");
 });
 
 onBeforeUnmount(() => {
-    // console.log("MapView.vue: onBeforeUnmount");
+    
     d3Renderer.destroyMap();
 });
 
@@ -231,10 +321,14 @@ watch(
         navigation.currentViewLevel,
         navigation.selectedStateId,
         navigation.selectedDistrictId,
-        navigation.selectedMode
+        navigation.selectedMode,
+        navigation.districtObservationDisplayMode,
+        navigation.selectedGridSize,
+        navigation.heatmapRadius,
     ],
-    async ([viewLevel, stateId, districtId, mode], [prevViewLevel, prevStateId, prevDistrictId, prevMode]) => {
+    async () => {
         if (mapIsInitialized.value) {
+            // console.log("MapView.vue: Nav/Mode/Display watcher - calling dataManager.refreshMapFeaturesAndStats()");
             await dataManager.refreshMapFeaturesAndStats();
         }
     },

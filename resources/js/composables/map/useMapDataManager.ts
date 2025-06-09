@@ -3,9 +3,10 @@ import { ref, readonly, type Ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRegionStore } from '@/stores/regions';
 import { useStatsStore } from '@/stores/stats';
+import { useObservationStore } from '@/stores/observations';
 import { useGeoHelpers } from './useGeoHelpers';
 import type { RegionFeature, RegionFeatureCollection, ViewLevel, RegionProperties } from '@/types/regions';
-import type { StatMode } from './useMapNavigationState'; // Ensure this is exported from useMapNavigationState
+import type { ObservationDisplayMode, StatMode } from './useMapNavigationState'; // Ensure this is exported from useMapNavigationState
 
 interface MapDataManagerOptions {
     currentViewLevel: Ref<ViewLevel>;
@@ -13,7 +14,9 @@ interface MapDataManagerOptions {
     currentSelectedStateId: Ref<string | number>;
     currentSelectedDistrictId: Ref<string | number>;
     currentSelectedMode: Ref<StatMode>;
+    districtObservationDisplayMode: Ref<ObservationDisplayMode>;
     setCountryFeature: (feature: RegionFeature | null) => void;
+
 }
 
 // UPDATED TYPE: To include all stats for tooltip and the current display stat
@@ -33,11 +36,13 @@ export function useMapDataManager(options: MapDataManagerOptions) {
         currentSelectedStateId,
         currentSelectedDistrictId,
         currentSelectedMode,
+        districtObservationDisplayMode,
         setCountryFeature,
     } = options;
 
     const regionStore = useRegionStore();
     const statsStore = useStatsStore();
+    const observationStore = useObservationStore();
     const { toFeature } = useGeoHelpers();
 
     const featuresToDisplay = ref<RegionFeatureCollection<Geometry, FeatureWithStats['properties']> | null>(null);
@@ -46,7 +51,13 @@ export function useMapDataManager(options: MapDataManagerOptions) {
     const currentStatsByFeatureId = ref<Record<string | number, any>>({});
     const currentStatRange = ref<{ min: number; max: number }>({ min: 0, max: 0 });
 
+    const gridDensityRange = ref<{ min: number; max: number }>({ min: 0, max: 0 });
+
     const setErrorManually = (message: string | null) => { /* ... same ... */ currentError.value = message; isLoading.value = false; };
+
+    const setGridDensityRange = (min: number, max: number) => {
+        gridDensityRange.value = { min, max };
+    };
 
     // UPDATED FUNCTION: To correctly populate all stats and displayStatValue
     const calculateStatRangeAndAugmentFeatures = (
@@ -165,6 +176,14 @@ export function useMapDataManager(options: MapDataManagerOptions) {
             const stateId = currentSelectedStateId.value;
             const districtId = currentSelectedDistrictId.value;
             const mode = currentSelectedMode.value; // Crucial for fetching and augmenting
+            const obsDisplayMode = districtObservationDisplayMode.value;
+
+            if (level === 'district' && districtId && obsDisplayMode !== 'none') {
+                // If we are in a single district view and want to show points/grid/heatmap,
+                // trigger the fetch from the observation store.
+                // The store handles caching internally.
+                await observationStore.fetchDistrictObservations({ districtId });
+            }
 
             // 1. Determine GeoJSON Features
             if (level === 'country') {
@@ -225,8 +244,19 @@ export function useMapDataManager(options: MapDataManagerOptions) {
                 currentStatsByFeatureId.value = {};
             }
 
-        } catch (e: any) { /* ... error handling ... */ console.error("Error in refreshMapFeaturesAndStats:", e); currentError.value = e.message || "Failed to update map features."; featuresToDisplay.value = null; currentStatRange.value = { min: 0, max: 0 }; currentStatsByFeatureId.value = {}; }
-        finally { isLoading.value = false; }
+        } catch (e: any) {
+            console.error("Error in refreshMapFeaturesAndStats:", e);
+            currentError.value = e.message || "Failed to update map features.";
+            featuresToDisplay.value = null;
+            currentStatRange.value = { min: 0, max: 0 };
+            currentStatsByFeatureId.value = {};
+        }
+        finally {
+            isLoading.value = false;
+            if (options.districtObservationDisplayMode.value !== 'grid') {
+                gridDensityRange.value = { min: 0, max: 0 };
+            }
+        }
     };
 
     const loadInitialDataAndStats = async () => { /* ... (ensure it calls refreshMapFeaturesAndStats correctly) ... */
@@ -248,7 +278,9 @@ export function useMapDataManager(options: MapDataManagerOptions) {
         isLoading: readonly(isLoading),
         currentError: readonly(currentError),
         currentStatRange: readonly(currentStatRange),
-        currentStatsByFeatureId: readonly(currentStatsByFeatureId), // Expose this if tooltips need it directly
+        currentStatsByFeatureId: readonly(currentStatsByFeatureId),
+        gridDensityRange,
+        setGridDensityRange,
         loadInitialDataAndStats,
         refreshMapFeaturesAndStats,
         setErrorManually,
