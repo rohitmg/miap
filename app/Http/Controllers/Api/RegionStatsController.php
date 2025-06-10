@@ -5,7 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Models\Observation;
 use Illuminate\Http\JsonResponse;
 use App\Http\Controllers\Controller;
-use Illuminate\Database\Eloquent\Builder; // Import Builder
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Request;
 
 class RegionStatsController extends Controller
 {
@@ -15,6 +16,7 @@ class RegionStatsController extends Controller
         // It's important to clone the query before applying aggregate functions
         // if you intend to use the original query builder for other purposes,
         // or if you're calling multiple aggregates.
+        dd($query->get());
         return [
             "observations" => $query->clone()->count(), // SELECT COUNT(*) ...
             "taxa" => $query->clone()->distinct('taxon_id')->count('taxon_id'), // SELECT COUNT(DISTINCT taxon_id) ...
@@ -22,31 +24,57 @@ class RegionStatsController extends Controller
         ];
     }
 
-    public function countryStats(): JsonResponse
+    public function countryStats(Request $request): JsonResponse
     {
+        $query = Observation::query();
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
+        // dd($request->input('taxa_ids'));
         return response()->json(
-            $this->calculateStatsForQuery(Observation::query()) // Pass the base query builder
+            $this->calculateStatsForQuery($query) // Pass the base query builder
         );
     }
 
-    public function stateStats($stateId): JsonResponse // Assuming $state is an ID
+    public function stateStats(Request $request, $stateId): JsonResponse // Assuming $state is an ID
     {
+        $query = Observation::where('state_id', $stateId);
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
         return response()->json(
-            $this->calculateStatsForQuery(Observation::where('state_id', $stateId))
+            $this->calculateStatsForQuery($query)
         );
     }
 
-    public function districtStats($districtId): JsonResponse // Assuming $district is an ID
+    public function districtStats(Request $request, $districtId): JsonResponse // Assuming $district is an ID
     {
+        $query = Observation::where('district_id', $districtId);
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
+
         return response()->json(
-            $this->calculateStatsForQuery(Observation::where('district_id', $districtId))
+            $this->calculateStatsForQuery($query)
         );
     }
 
     // For grouped stats, direct database aggregation is better
-    public function allStatesStats(): JsonResponse
+    public function allStatesStats(Request $request): JsonResponse
     {
-        $statsByState = Observation::query()
+        $query = Observation::query();
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
+        $statsByState = $query
             ->selectRaw('state_id, COUNT(*) as observations_count, COUNT(DISTINCT taxon_id) as taxa_count, COUNT(DISTINCT user_id) as users_count')
             ->groupBy('state_id')
             ->whereNotNull('state_id') // Optional: exclude observations without a state_id
@@ -81,13 +109,18 @@ class RegionStatsController extends Controller
         return response()->json($statsByDistrict);
     }
 
-    public function districtsStatsByState($stateId): JsonResponse
+    public function districtsStatsByState(Request $request, $stateId): JsonResponse
     {
-        $statsByDistrictInState = Observation::query()
-            ->where('state_id', $stateId)
+        $query = Observation::where('state_id', $stateId);
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
+        $statsByDistrictInState = $query
             ->selectRaw('district_id, COUNT(*) as observations_count, COUNT(DISTINCT taxon_id) as taxa_count, COUNT(DISTINCT user_id) as users_count')
             ->groupBy('district_id')
-            ->whereNotNull('district_id') // Optional
+            ->whereNotNull('district_id')
             ->get()
             ->keyBy('district_id')
             ->map(function ($row) {

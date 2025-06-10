@@ -20,9 +20,14 @@ class DistrictDataController extends Controller
 
     public function districtObservations(Request $request, $districtId): JsonResponse
     {
+        $query = Observation::where('district_id', $districtId);
+
+        if ($request->has('taxa_ids')) {
+            $taxaIds = explode(',', $request->input('taxa_ids'));
+            $query->whereIn('taxon_id', $taxaIds);
+        }
         try {
-            $query = Observation::where('district_id', $districtId)
-                ->select([
+            $query->select([
                     'id',
                     'latitude',
                     'longitude',

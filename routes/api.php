@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\{
     RegionBoundaryController,
     RegionStatsController,
     DistrictDataController,
+    TaxaController,
     TrendController,
     SpeciesController,
     UserController,
@@ -45,6 +46,8 @@ Route::prefix('v1')->group(function () {
         Route::get('states/{state}/districts',                       [RegionStatsController::class, 'districtsStatsByState']); // Stats for all districts within a specific state
         Route::get('districts/{district}',                           [RegionStatsController::class, 'districtStats']);       // Specific stats for a single district
     });
+
+    Route::get('taxa/all', [TaxaController::class, 'all']);
 
 
 
