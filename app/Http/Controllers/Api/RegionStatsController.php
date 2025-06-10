@@ -16,7 +16,6 @@ class RegionStatsController extends Controller
         // It's important to clone the query before applying aggregate functions
         // if you intend to use the original query builder for other purposes,
         // or if you're calling multiple aggregates.
-        dd($query->get());
         return [
             "observations" => $query->clone()->count(), // SELECT COUNT(*) ...
             "taxa" => $query->clone()->distinct('taxon_id')->count('taxon_id'), // SELECT COUNT(DISTINCT taxon_id) ...
