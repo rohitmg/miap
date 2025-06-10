@@ -4,7 +4,7 @@ import * as d3 from 'd3';
 import type { RegionFeature, RegionFeatureCollection, RegionProperties } from '@/types/regions';
 
 import { useObservationStore } from '@/stores/observations';
-import type { ObservationDisplayMode } from './useMapNavigationState';
+import type { ObservationDisplayMode, HeatmapIntensity } from './useMapNavigationState';
 import type { FeatureWithStats } from './useMapDataManager';
 
 const mapElementColors = {
@@ -39,12 +39,25 @@ export function useD3MapRenderer(
     currentDistrictFeature: Readonly<Ref<FeatureWithStats | null>>,
     heatmapRadius: Readonly<Ref<number>>,
     setGridDensityRange: (min: number, max: number) => void,
+    pointRadiusMeters: Readonly<Ref<number>>,
+    heatmapIntensity: Readonly<Ref<HeatmapIntensity>>,
 ) {
     const observationStore = useObservationStore();
     const { allDistrictObservations } = storeToRefs(observationStore);
     const svgWidth = ref(0);
     const svgHeight = ref(0);
     const isInitialized = ref(false);
+
+    const heatmapBandwidthMap: Record<HeatmapIntensity, number> = {
+        low: 20,
+        medium: 40,
+        high: 70,
+    };
+    const heatmapThresholdsMap: Record<HeatmapIntensity, number> = {
+        low: 10,
+        medium: 20,
+        high: 30,
+    };
 
     let svgSel: d3.Selection<SVGSVGElement, unknown, null, undefined> | undefined;
     let gMain: d3.Selection<SVGGElement, unknown, null, undefined> | undefined;
@@ -107,7 +120,8 @@ export function useD3MapRenderer(
 
     }, { deep: true, immediate: true });
 
-    watch([allDistrictObservations, observationDisplayMode, selectedGridSize, currentDistrictFeature], () => {
+    watch([allDistrictObservations, observationDisplayMode, selectedGridSize, selectedDistrictId, pointRadiusMeters, heatmapIntensity], 
+        () => {
         if (isInitialized.value) {
             renderObservationLayer();
         }
@@ -210,21 +224,26 @@ export function useD3MapRenderer(
 
         gObservations.selectAll('*').remove();
 
-        if (!points || points.length == 0 || mode == 'none') {
-            return;
-        }
+        if (!points || points.length == 0 || mode == 'none') return;
 
         if (mode === 'points') {
+            const centerGeo = projection.invert!(currentTransform.value.invert([svgWidth.value / 2, svgHeight.value / 2]));
+            if (!centerGeo) return;
+            const R = 6371000; // Earth radius in meters
+            const dLon = (pointRadiusMeters.value / (R * Math.cos(centerGeo[1] * Math.PI / 180))) * (180 / Math.PI);
+            const p1 = projection([centerGeo[0], centerGeo[1]]);
+            const p2 = projection([centerGeo[0] + dLon, centerGeo[1]]);
+            const pixelRadius = p1 && p2 ? Math.abs(p2[0] - p1[0]) : 1; // Fallback to 1px
+
             gObservations.selectAll('circle.observation-point')
                 .data(points)
-                .enter()
-                .append('circle')
+                .join('circle')
                 .attr('class', 'observation-point')
                 .attr('cx', d => projection([d.longitude, d.latitude])?.[0] ?? -999)
                 .attr('cy', d => projection([d.longitude, d.latitude])?.[1] ?? -999)
-                .attr('r', 1.5 / currentTransform.value.k) // Make points smaller on zoom-out
-                .attr('fill', 'oklch(0.8 0.2 50 / 0.7)') // Example: A bright orange/yellow
-                .style('pointer-events', 'none'); // So they don't block clicks on the polygon
+                .attr('r', Math.max(0.5, pixelRadius)) // Use calculated radius, with a minimum
+                .attr('fill', 'oklch(0.8 0.2 50 / 0.3)')
+                .style('pointer-events', 'none');
         } else if (mode === 'grid') {
             const districtFeature = currentDistrictFeature.value;
             if (!districtFeature) return;
@@ -236,7 +255,7 @@ export function useD3MapRenderer(
             // Find how many grid cells fit across the screen bounds
             const widthInPixels = x1 - x0;
             const heightInPixels = y1 - y0;
-            
+
             // Convert pixel dimensions back to approximate real-world distance
             const R = 6371000; // Earth radius in meters
             const p1Geo = projection.invert!([x0, y0]);
@@ -252,9 +271,9 @@ export function useD3MapRenderer(
             // Cell dimensions in pixels
             const cellWidth = widthInPixels / nCols;
             const cellHeight = heightInPixels / nRows;
-            
+
             const gridCells = new Map<string, { count: number; x: number; y: number }>();
-            
+
             for (const point of points) {
                 // ... (safety checks for coordinates) ...
                 const p = projection([point.longitude, point.latitude]);
@@ -263,11 +282,11 @@ export function useD3MapRenderer(
                     const col = Math.floor((p[0] - x0) / cellWidth);
                     const row = Math.floor((p[1] - y0) / cellHeight);
                     const key = `${col},${row}`;
-                    
+
                     if (!gridCells.has(key)) {
-                        gridCells.set(key, { 
-                            count: 0, 
-                            x: x0 + col * cellWidth, 
+                        gridCells.set(key, {
+                            count: 0,
+                            x: x0 + col * cellWidth,
                             y: y0 + row * cellHeight
                         });
                     }
@@ -278,7 +297,7 @@ export function useD3MapRenderer(
             const gridData = Array.from(gridCells.values());
             const minCount = d3.min(gridData, d => d.count) || 0;
             const maxCount = d3.max(gridData, d => d.count) || 1;
-            
+
             // --- NEW: Update the shared density range for the legend ---
             setGridDensityRange(minCount, maxCount);
 
@@ -304,34 +323,39 @@ export function useD3MapRenderer(
                 return null;
             }).filter((p): p is [number, number] => p !== null); // Filter out any nulls
 
-            if (projectedPoints.length < 3) { // Density estimation needs at least 3 points to be meaningful
-                console.warn("Not enough valid points to generate a heatmap.");
-                return;
-            }
+            if (projectedPoints.length === 0) return; // Guard clause
 
-            // Configure the density estimator
+            // Use the intensity mapping for bandwidth and thresholds
+            const currentBandwidth = heatmapBandwidthMap[heatmapIntensity.value];
+            const currentThresholds = heatmapThresholdsMap[heatmapIntensity.value];
+
             const densityData = d3.contourDensity()
-                .x(d => d[0])
-                .y(d => d[1])
+                .x(d => d[0]).y(d => d[1])
                 .size([svgWidth.value, svgHeight.value])
-                .bandwidth(heatmapRadius.value) // Use the reactive radius from the slider
-                .thresholds(20) // More thresholds for a smoother gradient look
+                .bandwidth(currentBandwidth)
+                .thresholds(currentThresholds)
                 (projectedPoints);
 
-            // Create a color scale for the heatmap density
-            const maxDensity = d3.max(densityData, d => d.value) || 1;
-            // Using a nice vibrant and perceptually uniform color scheme for heat
-            const heatmapColorScale = d3.scaleSequential(d3.interpolateTurbo)
-                .domain([0, maxDensity]);
+            const maxDensity = d3.max(densityData, d => d.value);
+            
+            // To ensure single points are visible, we can't use 0 as the min for a log/pow scale.
+            // Find the minimum non-zero density value.
+            const minPositiveDensity = d3.min(densityData, d => d.value > 0 ? d.value : undefined);
 
-            // Draw the heatmap contours
+            if (!maxDensity || !minPositiveDensity) return; // No density calculated, exit
+
+            // NEW: Use a Power Scale for the "curved" effect
+            const heatmapColorScale = d3.scaleSequentialPow(d3.interpolateTurbo)
+                .exponent(0.5) // Exponent < 1 emphasizes lower values. 0.5 is sqrt scale.
+                .domain([minPositiveDensity, maxDensity]);
+
             gObservations.selectAll('path.heatmap-contour')
                 .data(densityData)
                 .join('path')
                 .attr('class', 'heatmap-contour')
-                .attr('d', d3.geoPath()) // Use a default geoPath since data is already in screen coordinates
-                .attr('fill', d => heatmapColorScale(d.value))
-                .attr('fill-opacity', 0.5) // Use opacity to blend layers
+                .attr('d', d3.geoPath())
+                .attr('fill', d => d.value > 0 ? heatmapColorScale(d.value) : 'none') // Only color contours with density
+                .attr('fill-opacity', 0.25)
                 .attr('stroke', 'none');
         }
     }

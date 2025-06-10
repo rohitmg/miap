@@ -7,6 +7,7 @@ import type { RegionFeature, ViewLevel, RegionProperties } from '@/types/regions
 // Define StatMode here or import from a shared types file (e.g., src/types/stats.ts)
 export type StatMode = 'observations' | 'taxa' | 'users';
 export type ObservationDisplayMode = 'none' | 'points' | 'grid' | 'heatmap';
+export type HeatmapIntensity = 'low' | 'medium' | 'high';
 
 export interface BreadcrumbItem {
     name: string;
@@ -37,7 +38,8 @@ export function useMapNavigationState() {
     const breadcrumbs = ref<BreadcrumbItem[]>([]);
     const districtObservationDisplayMode = ref<ObservationDisplayMode>('none');
     const selectedGridSize = ref<number>(1000);
-    const heatmapRadius = ref<number>(40);
+    const pointRadiusMeters = ref<number>(10);
+    const heatmapIntensity = ref<HeatmapIntensity>('medium');
 
 
     // --- Computed Properties for Dropdowns ---
@@ -76,19 +78,17 @@ export function useMapNavigationState() {
         // Breadcrumbs will update via watcher
     };
 
-    const setSelectedMode = (mode: StatMode) => {
-        selectedMode.value = mode;
-        // Changing mode will trigger a watcher in MapView.vue,
-        // which then calls useMapDataManager to refresh stats and potentially map colors.
-    };
+    const setSelectedMode = (mode: StatMode) => selectedMode.value = mode;
 
     const setDistrictObservationDisplayMode = (mode: ObservationDisplayMode) => districtObservationDisplayMode.value = mode;
     const setSelectedGridSize = (sizeInMeters: number) => selectedGridSize.value = sizeInMeters;
-
-    const setHeatmapRadius = (radius:number) => heatmapRadius.value = radius;
+    const setPointRadius = (radiusInMeters: number) => pointRadiusMeters.value = radiusInMeters;
+    const setHeatmapIntensity = (intensity: HeatmapIntensity) => heatmapIntensity.value = intensity;
 
     //  --- Helper to reset point display state ---
-    const resetObservationDisplay = () => districtObservationDisplayMode.value = 'none';
+    const resetObservationDisplay = () => {
+        districtObservationDisplayMode.value = 'none';
+    }
 
     const _updateBreadcrumbsInternal = () => {
         const newCrumbs: BreadcrumbItem[] = [];
@@ -143,8 +143,6 @@ export function useMapNavigationState() {
                 console.warn("Clicked district feature not found or state context missing:", feature.properties.name);
             }
         }
-        // Watchers in MapView.vue on currentViewLevel, selectedStateId, selectedDistrictId
-        // will trigger useMapDataManager to refresh map features & stats.
     };
 
     const onStateSelected = async () => { // Called by @change on state dropdown
@@ -160,10 +158,6 @@ export function useMapNavigationState() {
 
     const onDistrictSelected = () => { // Called by @change on district dropdown
         resetObservationDisplay();
-        // If selectedDistrictId.value is set, MapView's watcher will trigger dataManager
-        // to update featuresToDisplay to this specific district.
-        // If cleared ("-- Select District --"), featuresToDisplay will show all districts for the current state.
-        // currentViewLevel should already be 'district'.
     };
 
     const navigateToCrumbByIndex = (index: number) => {
@@ -219,18 +213,19 @@ export function useMapNavigationState() {
 
     return {
         // --- Existing exports ---
-        currentViewLevel, selectedCountry, selectedStateId,
-        selectedDistrictId, selectedMode, breadcrumbs,
-        stateOptions, districtOptions, setCountryFeature,
-        setSelectedMode, handleFeatureClick, onStateSelected,
-        onDistrictSelected, navigateToCrumbByIndex, handleMapBackgroundClick,
-       
+        currentViewLevel, selectedCountry, selectedStateId, selectedDistrictId,
+        selectedMode, breadcrumbs, stateOptions, districtOptions,
+        setCountryFeature, setSelectedMode, handleFeatureClick,
+        onStateSelected, onDistrictSelected, navigateToCrumbByIndex, handleMapBackgroundClick,
+
+        // --- Updated/New Exports ---
         districtObservationDisplayMode,
         selectedGridSize,
+        pointRadiusMeters, // EXPORT this
+        heatmapIntensity,   // EXPORT this
         setDistrictObservationDisplayMode,
         setSelectedGridSize,
-
-        heatmapRadius,
-        setHeatmapRadius,
+        setPointRadius,     // EXPORT this
+        setHeatmapIntensity,  // EXPORT this
     };
 }

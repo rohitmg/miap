@@ -51,7 +51,7 @@
                     :disabled="!navigation.selectedCountry.value || navigation.stateOptions.value.length === 0"
                     class="control-dropdown mb-3" aria-label="Select State">
                     <option value="">-- Select State --</option>
-                    <option v-for="st in navigation.stateOptions.value" :key="st.id" :value="st.id">{{ st.name }}
+                    <option v-for="st in navigation.stateOptions.value" :key="st.id" :value="st.id" class="text-black">{{ st.name }}
                     </option>
                 </select>
 
@@ -104,47 +104,45 @@
                     </button>
                 </div>
 
-                <!-- Grid Size Selector (only visible if grid mode is active) -->
-                <div v-if="navigation.districtObservationDisplayMode.value === 'grid'" class="mt-2">
+                <!-- NEW: Point Radius Slider -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'points'" class="mt-3">
+                    <label for="point-radius" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
+                        <span>Point Radius</span>
+                        <span class="font-mono text-cyan-300">{{ pointRadiusDisplayValue }}</span>
+                    </label>
+                    <input id="point-radius" type="range"
+                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        min="0" :max="pointRadiusOptions.length - 1" step="1" :value="pointRadiusIndex"
+                        @input="onPointRadiusSliderChange(($event.target as HTMLInputElement).value)" />
+                </div>
+
+                <!-- UPDATED: Grid Size Slider -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'grid'" class="mt-3">
                     <label for="grid-size" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
                         <span>Grid Size</span>
-                        <span class="font-mono text-cyan-300">{{ navigation.selectedGridSize.value >= 1000 ?
-                            `${navigation.selectedGridSize.value / 1000}km` : `${navigation.selectedGridSize.value}m`
-                        }}</span>
+                        <span class="font-mono text-cyan-300">{{ gridSliderDisplayValue }}</span>
                     </label>
                     <input id="grid-size" type="range"
                         class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                        min="100" max="10000" step="100" :value="navigation.selectedGridSize.value"
-                        @input="navigation.setSelectedGridSize(Number(($event.target as HTMLInputElement).value))" />
+                        min="0" :max="gridSizeOptions.length - 1" step="1" :value="gridSizeIndex"
+                        @input="onGridSliderChange(($event.target as HTMLInputElement).value)" />
+                </div>
+
+                <!-- UPDATED: Heatmap Intensity Selector -->
+                <div v-if="navigation.districtObservationDisplayMode.value === 'heatmap'" class="mt-3">
+                    <h4 class="text-xs font-medium text-slate-400 mb-2">Intensity</h4>
+                    <div class="mode-selector grid grid-cols-3 gap-1 p-1 bg-slate-900/50 rounded-md">
+                        <button v-for="intensity in (['low', 'medium', 'high'] as const)" :key="intensity"
+                            @click="navigation.setHeatmapIntensity(intensity)"
+                            class="p-1.5 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                            :class="navigation.heatmapIntensity.value === intensity ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                            {{ intensity.charAt(0).toUpperCase() + intensity.slice(1) }}
+                        </button>
+                    </div>
                 </div>
 
             </div>
 
-            <div v-if="navigation.currentViewLevel.value === 'district' && navigation.selectedDistrictId.value">
-                <h3 class="text-sm font-medium text-slate-400 mb-2">Observation Display</h3>
-
-                <!-- Display Mode Buttons (Unchanged) -->
-                <div class="mode-selector ...">
-                    <!-- ... your buttons for none, points, grid, heatmap ... -->
-                </div>
-
-                <!-- Grid Size Selector (Unchanged) -->
-                <div v-if="navigation.districtObservationDisplayMode.value === 'grid'">
-                    <!-- ... your grid size select dropdown ... -->
-                </div>
-
-                <!-- NEW: Heatmap Radius Slider -->
-                <div v-if="navigation.districtObservationDisplayMode.value === 'heatmap'" class="mt-2">
-                    <label for="heatmap-radius" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
-                        <span>Heatmap Radius</span>
-                        <span class="font-mono text-cyan-300">{{ navigation.heatmapRadius.value }}px</span>
-                    </label>
-                    <input id="heatmap-radius" type="range"
-                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-                        min="10" max="100" step="5" :value="navigation.heatmapRadius.value"
-                        @input="navigation.setHeatmapRadius(Number(($event.target as HTMLInputElement).value))" />
-                </div>
-            </div>
 
             <!-- Legend Section -->
             <div class="mt-4">
@@ -261,6 +259,29 @@ const currentDistrictFeature = computed(() => {
     return null;
 });
 
+const pointRadiusOptions = [1, 10, 100, 1000, 10000]; // in meters
+const pointRadiusIndex = computed(() => pointRadiusOptions.indexOf(navigation.pointRadiusMeters.value));
+const pointRadiusDisplayValue = computed(() => {
+    const val = navigation.pointRadiusMeters.value;
+    return val >= 1000 ? `${val / 1000}km` : `${val}m`;
+});
+const onPointRadiusSliderChange = (indexStr: string) => {
+    navigation.setPointRadius(pointRadiusOptions[parseInt(indexStr, 10)]);
+};
+
+const gridSizeOptions = [100, 500, 1000, 2500, 5000, 10000, 50000, 100000]; // in meters
+const gridSizeIndex = computed(() => gridSizeOptions.indexOf(navigation.selectedGridSize.value));
+const gridSliderDisplayValue = computed(() => {
+    const val = navigation.selectedGridSize.value;
+    return val >= 1000 ? `${val / 1000}km` : `${val}m`;
+});
+const onGridSliderChange = (indexStr: string) => {
+    navigation.setSelectedGridSize(gridSizeOptions[parseInt(indexStr, 10)]);
+};
+
+
+const scaleBarDisplay = useScaleBar();
+
 const d3Renderer = useD3MapRenderer(
     svgRefElement,
     (event: MouseEvent, feature: RegionFeature) => navigation.handleFeatureClick(feature),
@@ -274,27 +295,25 @@ const d3Renderer = useD3MapRenderer(
     navigation.selectedGridSize,
     navigation.selectedDistrictId,
     currentDistrictFeature,
-    dataManager.setGridDensityRange // <<< THIS IS THE FIX: Pass the function from dataManager
+    navigation.heatmapRadius,
+    dataManager.setGridDensityRange,
+    navigation.pointRadiusMeters,
+    navigation.heatmapIntensity, 
 );
 
-const choroplethColorsForTemplate = d3Renderer.choroplethColors;
-
-const choroplethColors = d3Renderer.choroplethColors;
-
-const scaleBarDisplay = useScaleBar();
-
 onMounted(async () => {
+    console.clear();
     if (svgRefElement.value) {
-        await d3Renderer.initializeMap(); 
+        await d3Renderer.initializeMap();
         await dataManager.loadInitialDataAndStats();
         mapIsInitialized.value = true;
+        console.log('dome')
     } else {
         dataManager.setErrorManually("Map canvas could not be initialized.");
     }
 });
 
 onBeforeUnmount(() => {
-    
     d3Renderer.destroyMap();
 });
 
@@ -324,7 +343,8 @@ watch(
         navigation.selectedMode,
         navigation.districtObservationDisplayMode,
         navigation.selectedGridSize,
-        navigation.heatmapRadius,
+        navigation.pointRadiusMeters,
+        navigation.heatmapIntensity ,
     ],
     async () => {
         if (mapIsInitialized.value) {
