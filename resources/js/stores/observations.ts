@@ -89,7 +89,7 @@ export const useObservationStore = defineStore('observations', {
             try {
                 // Pass taxa_ids as query params if they exist
                 const params = taxaIds?.length ? { taxa_ids: taxaIds.join(',') } : {};
-                const response = await api.get<ObservationPoint[]>(`/districts/${districtId}/observation-points`, { params });
+                const response = await api.get<ObservationPoint[]>(`/districts/${districtId}/observations`, { params });
 
                 // Ensure the nested object for the district exists
                 if (!this.allDistrictObservations[districtId]) {
