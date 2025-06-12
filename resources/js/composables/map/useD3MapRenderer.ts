@@ -1,4 +1,4 @@
-import { ref, onBeforeUnmount, readonly, type Ref, nextTick, watch } from 'vue';
+import { ref, onBeforeUnmount, readonly, type Ref, nextTick, watch, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 import * as d3 from 'd3';
 import type { RegionFeature, RegionFeatureCollection, RegionProperties } from '@/types/regions';
@@ -37,13 +37,12 @@ export function useD3MapRenderer(
     selectedGridSize: Readonly<Ref<number>>,
     selectedDistrictId: Readonly<Ref<string | number>>,
     currentDistrictFeature: Readonly<Ref<FeatureWithStats | null>>,
-    heatmapRadius: Readonly<Ref<number>>,
-    setGridDensityRange: (min: number, max: number) => void,
-    pointRadiusMeters: Readonly<Ref<number>>,
     heatmapIntensity: Readonly<Ref<HeatmapIntensity>>,
+    setGridDensityRange: (min: number, max: number) => void,
+    pointRadiusMeters: Readonly<Ref<number>>
 ) {
     const observationStore = useObservationStore();
-    const { allDistrictObservations } = storeToRefs(observationStore);
+
     const svgWidth = ref(0);
     const svgHeight = ref(0);
     const isInitialized = ref(false);
@@ -120,12 +119,28 @@ export function useD3MapRenderer(
 
     }, { deep: true, immediate: true });
 
-    watch([allDistrictObservations, observationDisplayMode, selectedGridSize, selectedDistrictId, pointRadiusMeters, heatmapIntensity], 
-        () => {
-        if (isInitialized.value) {
-            renderObservationLayer();
-        }
+    const currentPoints = computed(() => {
+        const districtId = selectedDistrictId.value;
+        if (!districtId) return [];
+        // Use the getter to get the correct array based on the current taxa filter (implicitly handled in dataManager)
+        console.log(observationStore.getDistrictObservations(districtId))
+        return observationStore.getDistrictObservations(districtId);
     });
+
+    watch(
+        [
+            currentPoints,
+            observationDisplayMode,
+            selectedGridSize,
+            selectedDistrictId,
+            pointRadiusMeters,
+            heatmapIntensity
+        ],
+        () => {
+            if (isInitialized.value) {
+                renderObservationLayer();
+            }
+        });
 
 
     const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
@@ -216,15 +231,17 @@ export function useD3MapRenderer(
     };
 
     const renderObservationLayer = () => {
-        if (!gObservations || !isInitialized.value) return;
+         if (!gObservations || !isInitialized.value) return;
 
         const mode = observationDisplayMode.value;
-        const districtId = selectedDistrictId.value;
-        const points = districtId ? allDistrictObservations.value[districtId] : null;
+        const points = currentPoints.value; // Use the computed property
 
         gObservations.selectAll('*').remove();
 
-        if (!points || points.length == 0 || mode == 'none') return;
+        if (!points || points.length === 0 || mode === 'none') {
+            setGridDensityRange(0,0); // Clear the legend
+            return;
+        }
 
         if (mode === 'points') {
             const centerGeo = projection.invert!(currentTransform.value.invert([svgWidth.value / 2, svgHeight.value / 2]));
@@ -337,7 +354,7 @@ export function useD3MapRenderer(
                 (projectedPoints);
 
             const maxDensity = d3.max(densityData, d => d.value);
-            
+
             // To ensure single points are visible, we can't use 0 as the min for a log/pow scale.
             // Find the minimum non-zero density value.
             const minPositiveDensity = d3.min(densityData, d => d.value > 0 ? d.value : undefined);
@@ -452,19 +469,23 @@ export function useD3MapRenderer(
     };
 
     const renderFeatures = (
-        featuresCollection: FeatureCollection<Geometry, RegionProperties & { displayStatValue?: number, observations?: number, taxa?: number, users?: number }> | null
+        featuresCollection: FeatureWithStatsCollection | null
     ) => {
         lastRenderedFeatures = featuresCollection;
         if (!isInitialized.value || !svgSel || !gMain || svgWidth.value === 0 || svgHeight.value === 0) {
             console.warn("D3MapRenderer: Cannot render features, map not fully initialized or no dimensions."); return;
         }
         if (!featuresCollection || featuresCollection.features.length === 0) {
-            gMain.selectAll("*").remove(); zoomToFit(null); return;
+            // Clear all layers
+            if(gPaths) gPaths.selectAll("*").remove();
+            if(gLabels) gLabels.selectAll("*").remove();
+            if(gObservations) gObservations.selectAll("*").remove();
+            zoomToFit(null);
+            return;
         }
         projection.fitSize([svgWidth.value, svgHeight.value], featuresCollection as any);
         renderPathsAndLabels(featuresCollection.features as FeatureWithStats[]);
         zoomToFit(featuresCollection);
-
         renderObservationLayer();
     };
 
@@ -500,11 +521,11 @@ export function useD3MapRenderer(
     return {
         initializeMap, renderFeatures, clearFeatures, destroyMap,
         isReady: readonly(isInitialized),
-        choroplethColors: readonly(choroplethColors),
+        choroplethColors: choroplethColors, // Return as a plain object for easier template use
         projection: readonly(ref(projection)),
         currentTransform: readonly(currentTransform),
         svgWidth: readonly(svgWidth), svgHeight: readonly(svgHeight),
-        tooltip: {
+        tooltip: { 
             visible: readonly(tooltip.visible), name: readonly(tooltip.name),
             observations: readonly(tooltip.observations), taxa: readonly(tooltip.taxa), users: readonly(tooltip.users),
             x: readonly(tooltip.x), y: readonly(tooltip.y),
