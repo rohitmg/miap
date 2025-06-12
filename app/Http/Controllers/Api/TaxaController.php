@@ -17,7 +17,7 @@ class TaxaController extends Controller
     {
         try {
             $taxa = Taxon::query()
-                ->select(['id', 'name']) // IMPORTANT: Only select necessary columns
+                ->select(['taxon_id as id', 'name']) // IMPORTANT: Only select necessary columns
                 ->orderBy('name', 'asc')   // Order them alphabetically for the frontend
                 ->get();
 
