@@ -1,12 +1,12 @@
-// src/composables/map/useMapDataManager.ts
 import { ref, readonly, type Ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRegionStore } from '@/stores/regions';
 import { useStatsStore } from '@/stores/stats';
 import { useObservationStore } from '@/stores/observations';
+import { useTaxaStore } from '@/stores/taxa';
 import { useGeoHelpers } from './useGeoHelpers';
 import type { RegionFeature, RegionFeatureCollection, ViewLevel, RegionProperties } from '@/types/regions';
-import type { ObservationDisplayMode, StatMode } from './useMapNavigationState'; // Ensure this is exported from useMapNavigationState
+import type { StatMode, ObservationDisplayMode } from './useMapNavigationState';
 
 interface MapDataManagerOptions {
     currentViewLevel: Ref<ViewLevel>;
@@ -14,15 +14,13 @@ interface MapDataManagerOptions {
     currentSelectedStateId: Ref<string | number>;
     currentSelectedDistrictId: Ref<string | number>;
     currentSelectedMode: Ref<StatMode>;
-    districtObservationDisplayMode: Ref<ObservationDisplayMode>;
+    currentObservationDisplayMode: Ref<ObservationDisplayMode>;
     setCountryFeature: (feature: RegionFeature | null) => void;
-
 }
 
-// UPDATED TYPE: To include all stats for tooltip and the current display stat
 export type FeatureWithStats = RegionFeature & {
     properties: RegionProperties & {
-        displayStatValue?: number; // For the current mode's choropleth & label
+        displayStatValue?: number;
         observations?: number;
         taxa?: number;
         users?: number;
@@ -36,13 +34,14 @@ export function useMapDataManager(options: MapDataManagerOptions) {
         currentSelectedStateId,
         currentSelectedDistrictId,
         currentSelectedMode,
-        districtObservationDisplayMode,
+        currentObservationDisplayMode,
         setCountryFeature,
     } = options;
 
     const regionStore = useRegionStore();
     const statsStore = useStatsStore();
     const observationStore = useObservationStore();
+    const taxaStore = useTaxaStore();
     const { toFeature } = useGeoHelpers();
 
     const featuresToDisplay = ref<RegionFeatureCollection<Geometry, FeatureWithStats['properties']> | null>(null);
@@ -50,19 +49,14 @@ export function useMapDataManager(options: MapDataManagerOptions) {
     const currentError = ref<string | null>(null);
     const currentStatsByFeatureId = ref<Record<string | number, any>>({});
     const currentStatRange = ref<{ min: number; max: number }>({ min: 0, max: 0 });
-
     const gridDensityRange = ref<{ min: number; max: number }>({ min: 0, max: 0 });
 
-    const setErrorManually = (message: string | null) => { /* ... same ... */ currentError.value = message; isLoading.value = false; };
+    const setErrorManually = (message: string | null) => { currentError.value = message; isLoading.value = false; };
+    const setGridDensityRange = (min: number, max: number) => { gridDensityRange.value = { min, max }; };
 
-    const setGridDensityRange = (min: number, max: number) => {
-        gridDensityRange.value = { min, max };
-    };
-
-    // UPDATED FUNCTION: To correctly populate all stats and displayStatValue
-    const calculateStatRangeAndAugmentFeatures = (
+const calculateStatRangeAndAugmentFeatures = (
         baseFeatures: RegionFeature[],
-        statsSource: Record<string | number, any> | null, // e.g., statsStore.country, statsStore.allStates[featureId], etc.
+        statsSource: Record<string | number, any> | null,
         mode: StatMode
     ): FeatureWithStats[] => {
         let minDisplayStat = Infinity;
@@ -70,65 +64,31 @@ export function useMapDataManager(options: MapDataManagerOptions) {
         const augmentedFeatures: FeatureWithStats[] = [];
 
         if (!statsSource) {
-            console.warn("DM: No statsSource provided for augmentation. Features will lack detailed stats.");
-            return baseFeatures.map(f => ({
-                ...f,
-                properties: {
-                    ...f.properties,
-                    displayStatValue: undefined,
-                    observations: undefined,
-                    taxa: undefined,
-                    users: undefined,
-                }
-            }));
+            return baseFeatures.map(f => ({ ...f, properties: { ...f.properties, displayStatValue: undefined, observations: undefined, taxa: undefined, users: undefined } }));
         }
 
         for (const feature of baseFeatures) {
             const featureId = feature.properties.id;
             let statRecord: any = null;
-
-            // Determine the correct statRecord for the current feature
+            
             if (statsSource && typeof statsSource === 'object') {
-                // Handle cases:
-                // 1. statsSource is the direct stat object (e.g., for country, or single selected district stats)
-                // 2. statsSource is a map of stats (e.g., allStates, districtsInState)
-                if (baseFeatures.length === 1 && Object.keys(statsSource).length <= 3 && ('observations' in statsSource || 'taxa' in statsSource || 'users' in statsSource)) {
-                    // Likely statsSource *is* the statRecord for the single baseFeature
-                    statRecord = statsSource[featureId] || statsSource; // Check if keyed by ID first, else assume it's the object directly
-                } else {
-                    statRecord = statsSource[featureId]; // Standard lookup for collections
-                }
+                const isSingleFeatureStat = baseFeatures.length === 1 && ('observations' in statsSource || 'taxa' in statsSource || 'users' in statsSource);
+                statRecord = isSingleFeatureStat ? (statsSource[featureId] || statsSource) : statsSource[featureId];
             }
-
-            let currentModeDisplayValue: number | undefined = undefined;
-            let obsVal: number | undefined = undefined;
-            let taxaVal: number | undefined = undefined;
-            let usersVal: number | undefined = undefined;
+            
+            let currentModeDisplayValue: number | undefined;
+            let obsVal: number | undefined;
+            let taxaVal: number | undefined;
+            let usersVal: number | undefined;
 
             if (statRecord && typeof statRecord === 'object') {
-                // Get the value for the current display mode
-                if (mode in statRecord && statRecord[mode] !== null && statRecord[mode] !== undefined) {
-                    const parsed = parseFloat(String(statRecord[mode]));
-                    if (!isNaN(parsed)) currentModeDisplayValue = parsed;
-                }
+                const parse = (val: any) => (val !== null && val !== undefined) ? (parseFloat(String(val))) : undefined;
+                const checkFinite = (val?: number) => (val !== undefined && isFinite(val)) ? val : undefined;
 
-                // Get all individual stats for the tooltip
-                const obs = statRecord.observations;
-                const tax = statRecord.taxa;
-                const usr = statRecord.users;
-
-                if (obs !== null && obs !== undefined) {
-                    const parsedObs = parseFloat(String(obs));
-                    if (!isNaN(parsedObs)) obsVal = parsedObs;
-                }
-                if (tax !== null && tax !== undefined) {
-                    const parsedTax = parseFloat(String(tax));
-                    if (!isNaN(parsedTax)) taxaVal = parsedTax;
-                }
-                if (usr !== null && usr !== undefined) {
-                    const parsedUsr = parseFloat(String(usr));
-                    if (!isNaN(parsedUsr)) usersVal = parsedUsr;
-                }
+                currentModeDisplayValue = checkFinite(parse(statRecord[mode]));
+                obsVal = checkFinite(parse(statRecord.observations));
+                taxaVal = checkFinite(parse(statRecord.taxa));
+                usersVal = checkFinite(parse(statRecord.users));
             }
 
             augmentedFeatures.push({
@@ -142,30 +102,29 @@ export function useMapDataManager(options: MapDataManagerOptions) {
                 }
             });
 
-            if (currentModeDisplayValue !== undefined && isFinite(currentModeDisplayValue)) {
+            if (currentModeDisplayValue !== undefined) {
                 minDisplayStat = Math.min(minDisplayStat, currentModeDisplayValue);
                 maxDisplayStat = Math.max(maxDisplayStat, currentModeDisplayValue);
             }
         }
+        
+        currentStatRange.value = { min: isFinite(minDisplayStat) && minDisplayStat !== Infinity ? minDisplayStat : 0, max: isFinite(maxDisplayStat) && maxDisplayStat !== -Infinity ? maxDisplayStat : 0 };
+        if (currentStatRange.value.min === currentStatRange.value.max && currentStatRange.value.max !== 0) { currentStatRange.value.min = 0; }
+        else if (!isFinite(minDisplayStat)) { currentStatRange.value = { min: 0, max: 0 }; }
 
-        currentStatRange.value = {
-            min: isFinite(minDisplayStat) && minDisplayStat !== Infinity ? minDisplayStat : 0,
-            max: isFinite(maxDisplayStat) && maxDisplayStat !== -Infinity ? maxDisplayStat : 0,
-        };
-
-        if (currentStatRange.value.min === currentStatRange.value.max && currentStatRange.value.max !== 0) {
-            currentStatRange.value.min = 0;
-        } else if (!isFinite(minDisplayStat) || minDisplayStat === Infinity) { // No valid stats found
-            currentStatRange.value = { min: 0, max: 0 };
-        }
         return augmentedFeatures;
     };
+
 
     const refreshMapFeaturesAndStats = async () => {
         isLoading.value = true;
         currentError.value = null;
         regionStore.setError(null);
         statsStore.setError(null);
+
+        const selectedTaxaIds = Array.from(taxaStore.selectedTaxaIds);
+
+        // console.log("DataManager: Filtering with these Taxa IDs:", selectedTaxaIds);
 
         let baseGeoFeatures: RegionFeature[] = [];
         let relevantStatsSource: Record<string | number, any> | null = null;
@@ -175,101 +134,125 @@ export function useMapDataManager(options: MapDataManagerOptions) {
             const countryFeature = currentSelectedCountry.value;
             const stateId = currentSelectedStateId.value;
             const districtId = currentSelectedDistrictId.value;
-            const mode = currentSelectedMode.value; // Crucial for fetching and augmenting
-            const obsDisplayMode = districtObservationDisplayMode.value;
+            const mode = currentSelectedMode.value;
 
-            if (level === 'district' && districtId && obsDisplayMode !== 'none') {
-                // If we are in a single district view and want to show points/grid/heatmap,
-                // trigger the fetch from the observation store.
-                // The store handles caching internally.
-                await observationStore.fetchDistrictObservations({ districtId });
-            }
-
-            // 1. Determine GeoJSON Features
+            const fetchOptions = { taxaIds: selectedTaxaIds };
+            const cacheKey = taxaStore.selectedTaxaIds.size > 0 ? selectedTaxaIds.sort((a,b)=>a-b).join(',') : 'all';
+            
             if (level === 'country') {
-                if (countryFeature) baseGeoFeatures = [countryFeature];
-                else if (regionStore.country) { setCountryFeature(toFeature(regionStore.country)); baseGeoFeatures = [currentSelectedCountry.value!]; }
-                else { regionStore.setError("Country data is not loaded."); throw new Error("Country GeoJSON not loaded."); }
+                if (countryFeature) {
+                    baseGeoFeatures = [countryFeature];
+                    await statsStore.fetchCountryStats(fetchOptions);
+                    relevantStatsSource = statsStore.country[cacheKey] || null;
+                } else {
+                    regionStore.setError("Country data is not loaded.");
+                }
             } else if (level === 'state') {
-                if (countryFeature && regionStore.states) baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
-                else { /* ... fallback or error ... */ }
-            } else if (level === 'district') {
+                if (countryFeature && regionStore.states) {
+                    baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
+                    await statsStore.fetchAllStatesStats(fetchOptions);
+                    relevantStatsSource = statsStore.allStates[cacheKey];
+                } else if (countryFeature) { 
+                    // Fallback to show country feature, but DO NOT change view level
+                    baseGeoFeatures = [countryFeature];
+                    await statsStore.fetchCountryStats(fetchOptions);
+                    relevantStatsSource = statsStore.country[cacheKey] || null;
+                    console.warn("State GeoJSON not loaded. Displaying country feature as fallback.");
+                } else {
+                    regionStore.setError("Cannot display states, country information missing.");
+                }
+            } else if (level === 'district') { 
                 if (stateId) {
                     if (!regionStore.districtsByState[stateId] || regionStore.districtsByState[stateId].length === 0) {
                         await regionStore.fetchDistricts(+stateId);
                     }
                     const districtsForState = regionStore.districtsByState[stateId];
-                    if (districtsForState?.length) {
-                        if (districtId) {
-                            const district = districtsForState.find(d => d.id === districtId);
-                            if (district) baseGeoFeatures = [toFeature(district, "District")];
-                            else baseGeoFeatures = districtsForState.map(d => toFeature(d, "District")); // Fallback
+                    if(districtsForState?.length) {
+                        await statsStore.fetchDistrictsStatsByState({ stateId, ...fetchOptions });
+                        const allDistrictsStatsInState = statsStore.districtsInState[stateId]?.[cacheKey];
+                        if (districtId && allDistrictsStatsInState?.[districtId]) {
+                            const districtFeature = districtsForState.find(d => d.id === districtId);
+                            if (districtFeature) {
+                                baseGeoFeatures = [toFeature(districtFeature, "District")];
+                                relevantStatsSource = { [districtId]: allDistrictsStatsInState[districtId] };
+                            } else {
+                                // Fallback if specific district not found in GeoJSON
+                                baseGeoFeatures = districtsForState.map(d => toFeature(d, "District"));
+                                relevantStatsSource = allDistrictsStatsInState;
+                            }
                         } else {
                             baseGeoFeatures = districtsForState.map(d => toFeature(d, "District"));
+                            relevantStatsSource = allDistrictsStatsInState;
                         }
-                    } // ... fallbacks for no districts ...
-                } // ... fallbacks for no stateId ...
-            }
-
-            // 2. Fetch Corresponding Stats
-            if (baseGeoFeatures.length > 0) {
-                if (level === 'country') {
-                    await statsStore.fetchCountryStats();
-                    if (statsStore.country && countryFeature) {
-                        relevantStatsSource = { [countryFeature.properties.id]: statsStore.country };
+                    } else { // Fallback if no district GeoJSON found
+                        if (regionStore.states?.[stateId]) {
+                             baseGeoFeatures = [toFeature(regionStore.states[stateId], "State")];
+                             console.warn(`No districts found for state ${stateId}. Displaying state feature as fallback.`);
+                        }
                     }
-                } else if (level === 'state') {
-                    await statsStore.fetchAllStatesStats();
-                    relevantStatsSource = statsStore.allStates;
-                } else if (level === 'district' && stateId) {
-                    await statsStore.fetchDistrictsStatsByState(stateId);
-                    const allDistrictsStatsInState = statsStore.districtsInState[stateId];
-                    if (districtId && allDistrictsStatsInState?.[districtId]) {
-                        relevantStatsSource = { [districtId]: allDistrictsStatsInState[districtId] };
-                    } else if (allDistrictsStatsInState) {
-                        relevantStatsSource = allDistrictsStatsInState;
-                    }
+                } else { // No state ID selected, but in district view level
+                     if (countryFeature && regionStore.states) { // Fallback to state view
+                         baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
+                         console.warn("No state selected for district view. Displaying all states as fallback.");
+                     }
                 }
             }
 
-            // 3. Augment features and set featuresToDisplay
+            // Fetch Observation Points if needed
+            const obsDisplayMode = currentObservationDisplayMode.value;
+            if (level === 'district' && districtId && obsDisplayMode !== 'none') {
+                // If we are in a single district view and want to show points/grid/heatmap,
+                // trigger the fetch from the observation store.
+                // The store handles the caching internally.
+                console.log(`DM: Triggering fetch for observation points in district ${districtId}. Mode: ${obsDisplayMode}`);
+                await observationStore.fetchDistrictObservations({ districtId, taxaIds: selectedTaxaIds });
+            } else {
+                // If we are not in a view that shows points, ensure any old data is cleared
+                // to prevent the renderer from accidentally showing it.
+                if (observationStore.allDistrictObservations[districtId as any]) {
+                     observationStore.clearObservationsForDistrict(districtId);
+                }
+            }
+
+            // Augment features and set for display
             if (baseGeoFeatures.length > 0) {
                 const augmentedFeatures = calculateStatRangeAndAugmentFeatures(baseGeoFeatures, relevantStatsSource, mode);
                 featuresToDisplay.value = { type: 'FeatureCollection', features: augmentedFeatures };
-                currentStatsByFeatureId.value = relevantStatsSource || {}; // Store for potential direct access
+                currentStatsByFeatureId.value = relevantStatsSource || {};
             } else {
-                // ... handle no GeoJSON features ...
                 featuresToDisplay.value = null;
-                currentStatRange.value = { min: 0, max: 0 };
                 currentStatsByFeatureId.value = {};
+                currentStatRange.value = { min: 0, max: 0 };
+                console.warn("No GeoJSON features determined for display for current navigation state.");
             }
 
-        } catch (e: any) {
+        } catch (e: any) { 
             console.error("Error in refreshMapFeaturesAndStats:", e);
             currentError.value = e.message || "Failed to update map features.";
             featuresToDisplay.value = null;
             currentStatRange.value = { min: 0, max: 0 };
             currentStatsByFeatureId.value = {};
         }
-        finally {
-            isLoading.value = false;
-            if (options.districtObservationDisplayMode.value !== 'grid') {
-                gridDensityRange.value = { min: 0, max: 0 };
-            }
-        }
+        finally { isLoading.value = false; }
     };
 
-    const loadInitialDataAndStats = async () => { /* ... (ensure it calls refreshMapFeaturesAndStats correctly) ... */
-        isLoading.value = true; currentError.value = null;
+    const loadInitialDataAndStats = async () => {
+        isLoading.value = true;
+        currentError.value = null;
         try {
+            await taxaStore.fetchAllTaxa();
             await regionStore.fetchCountry();
             if (regionStore.country) {
-                const countryFeat = toFeature(regionStore.country, "Country");
-                setCountryFeature(countryFeat);
+                setCountryFeature(toFeature(regionStore.country, "Country"));
             } else { throw new Error("Failed to load initial country GeoJSON."); }
             await regionStore.fetchStates();
-            await refreshMapFeaturesAndStats(); // This will handle initial country stats too
-        } catch (e: any) { console.error("Error during loadInitialDataAndStats:", e); currentError.value = e.message || "Failed to load initial map data."; featuresToDisplay.value = null; if (typeof setCountryFeature === 'function') setCountryFeature(null); }
+            await refreshMapFeaturesAndStats();
+        } catch (e: any) {
+            console.error("Error during loadInitialDataAndStats:", e);
+            currentError.value = e.message || "Failed to load initial map data.";
+            featuresToDisplay.value = null;
+            if (typeof setCountryFeature === 'function') setCountryFeature(null);
+        }
         finally { isLoading.value = false; }
     };
 
@@ -278,8 +261,7 @@ export function useMapDataManager(options: MapDataManagerOptions) {
         isLoading: readonly(isLoading),
         currentError: readonly(currentError),
         currentStatRange: readonly(currentStatRange),
-        currentStatsByFeatureId: readonly(currentStatsByFeatureId),
-        gridDensityRange,
+        gridDensityRange: readonly(gridDensityRange),
         setGridDensityRange,
         loadInitialDataAndStats,
         refreshMapFeaturesAndStats,
