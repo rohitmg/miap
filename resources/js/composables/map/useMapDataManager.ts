@@ -54,7 +54,7 @@ export function useMapDataManager(options: MapDataManagerOptions) {
     const setErrorManually = (message: string | null) => { currentError.value = message; isLoading.value = false; };
     const setGridDensityRange = (min: number, max: number) => { gridDensityRange.value = { min, max }; };
 
-const calculateStatRangeAndAugmentFeatures = (
+    const calculateStatRangeAndAugmentFeatures = (
         baseFeatures: RegionFeature[],
         statsSource: Record<string | number, any> | null,
         mode: StatMode
@@ -70,12 +70,12 @@ const calculateStatRangeAndAugmentFeatures = (
         for (const feature of baseFeatures) {
             const featureId = feature.properties.id;
             let statRecord: any = null;
-            
+
             if (statsSource && typeof statsSource === 'object') {
                 const isSingleFeatureStat = baseFeatures.length === 1 && ('observations' in statsSource || 'taxa' in statsSource || 'users' in statsSource);
                 statRecord = isSingleFeatureStat ? (statsSource[featureId] || statsSource) : statsSource[featureId];
             }
-            
+
             let currentModeDisplayValue: number | undefined;
             let obsVal: number | undefined;
             let taxaVal: number | undefined;
@@ -107,7 +107,7 @@ const calculateStatRangeAndAugmentFeatures = (
                 maxDisplayStat = Math.max(maxDisplayStat, currentModeDisplayValue);
             }
         }
-        
+
         currentStatRange.value = { min: isFinite(minDisplayStat) && minDisplayStat !== Infinity ? minDisplayStat : 0, max: isFinite(maxDisplayStat) && maxDisplayStat !== -Infinity ? maxDisplayStat : 0 };
         if (currentStatRange.value.min === currentStatRange.value.max && currentStatRange.value.max !== 0) { currentStatRange.value.min = 0; }
         else if (!isFinite(minDisplayStat)) { currentStatRange.value = { min: 0, max: 0 }; }
@@ -137,9 +137,19 @@ const calculateStatRangeAndAugmentFeatures = (
             const mode = currentSelectedMode.value;
 
             const fetchOptions = { taxaIds: selectedTaxaIds };
-            const cacheKey = taxaStore.selectedTaxaIds.size > 0 ? selectedTaxaIds.sort((a,b)=>a-b).join(',') : 'all';
-            
-            if (level === 'country') {
+            const cacheKey = taxaStore.selectedTaxaIds.size > 0 ? selectedTaxaIds.sort((a, b) => a - b).join(',') : 'all';
+
+            if (level === 'home') {
+                // For 'home' view, we only want to display the single country boundary
+                if (countryFeature) {
+                    baseGeoFeatures = [countryFeature];
+                    // Fetch corresponding country stats
+                    await statsStore.fetchCountryStats(fetchOptions);
+                    relevantStatsSource = statsStore.country[cacheKey] || null;
+                } else {
+                    regionStore.setError("Country data is not loaded.");
+                }
+            } else if (level === 'country') {
                 if (countryFeature) {
                     baseGeoFeatures = [countryFeature];
                     await statsStore.fetchCountryStats(fetchOptions);
@@ -152,7 +162,7 @@ const calculateStatRangeAndAugmentFeatures = (
                     baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
                     await statsStore.fetchAllStatesStats(fetchOptions);
                     relevantStatsSource = statsStore.allStates[cacheKey];
-                } else if (countryFeature) { 
+                } else if (countryFeature) {
                     // Fallback to show country feature, but DO NOT change view level
                     baseGeoFeatures = [countryFeature];
                     await statsStore.fetchCountryStats(fetchOptions);
@@ -161,13 +171,13 @@ const calculateStatRangeAndAugmentFeatures = (
                 } else {
                     regionStore.setError("Cannot display states, country information missing.");
                 }
-            } else if (level === 'district') { 
+            } else if (level === 'district') {
                 if (stateId) {
                     if (!regionStore.districtsByState[stateId] || regionStore.districtsByState[stateId].length === 0) {
                         await regionStore.fetchDistricts(+stateId);
                     }
                     const districtsForState = regionStore.districtsByState[stateId];
-                    if(districtsForState?.length) {
+                    if (districtsForState?.length) {
                         await statsStore.fetchDistrictsStatsByState({ stateId, ...fetchOptions });
                         const allDistrictsStatsInState = statsStore.districtsInState[stateId]?.[cacheKey];
                         if (districtId && allDistrictsStatsInState?.[districtId]) {
@@ -186,15 +196,15 @@ const calculateStatRangeAndAugmentFeatures = (
                         }
                     } else { // Fallback if no district GeoJSON found
                         if (regionStore.states?.[stateId]) {
-                             baseGeoFeatures = [toFeature(regionStore.states[stateId], "State")];
-                             console.warn(`No districts found for state ${stateId}. Displaying state feature as fallback.`);
+                            baseGeoFeatures = [toFeature(regionStore.states[stateId], "State")];
+                            console.warn(`No districts found for state ${stateId}. Displaying state feature as fallback.`);
                         }
                     }
                 } else { // No state ID selected, but in district view level
-                     if (countryFeature && regionStore.states) { // Fallback to state view
-                         baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
-                         console.warn("No state selected for district view. Displaying all states as fallback.");
-                     }
+                    if (countryFeature && regionStore.states) { // Fallback to state view
+                        baseGeoFeatures = Object.values(regionStore.states).map(s => toFeature(s, "State"));
+                        console.warn("No state selected for district view. Displaying all states as fallback.");
+                    }
                 }
             }
 
@@ -210,7 +220,7 @@ const calculateStatRangeAndAugmentFeatures = (
                 // If we are not in a view that shows points, ensure any old data is cleared
                 // to prevent the renderer from accidentally showing it.
                 if (observationStore.allDistrictObservations[districtId as any]) {
-                     observationStore.clearObservationsForDistrict(districtId);
+                    observationStore.clearObservationsForDistrict(districtId);
                 }
             }
 
@@ -226,7 +236,7 @@ const calculateStatRangeAndAugmentFeatures = (
                 console.warn("No GeoJSON features determined for display for current navigation state.");
             }
 
-        } catch (e: any) { 
+        } catch (e: any) {
             console.error("Error in refreshMapFeaturesAndStats:", e);
             currentError.value = e.message || "Failed to update map features.";
             featuresToDisplay.value = null;

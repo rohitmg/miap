@@ -56,14 +56,16 @@
                     :disabled="!navigation.selectedCountry.value || navigation.stateOptions.value.length === 0"
                     class="control-dropdown mb-3" aria-label="Select State">
                     <option value="">-- Select State --</option>
-                    <option v-for="st in navigation.stateOptions.value" :key="st.id" :value="st.id">{{ st.name }}</option>
+                    <option v-for="st in navigation.stateOptions.value" :key="st.id" :value="st.id">{{ st.name }}
+                    </option>
                 </select>
 
                 <select v-model="navigation.selectedDistrictId.value" @change="navigation.onDistrictSelected"
                     :disabled="!navigation.selectedStateId.value || navigation.districtOptions.value.length === 0"
                     class="control-dropdown" aria-label="Select District">
                     <option value="">-- Select District --</option>
-                    <option v-for="dt in navigation.districtOptions.value" :key="dt.id" :value="dt.id">{{ dt.name }}</option>
+                    <option v-for="dt in navigation.districtOptions.value" :key="dt.id" :value="dt.id">{{ dt.name }}
+                    </option>
                 </select>
             </div>
 
@@ -79,33 +81,42 @@
                     </button>
                 </div>
             </div>
-            
+
             <!-- Taxa Selection -->
             <div>
                 <h3 class="text-sm font-medium text-slate-400 mb-2">Taxa Selection</h3>
                 <div class="taxa-filter-container bg-slate-900/50 p-3 rounded-lg">
-                    <input 
-                        type="text" 
-                        placeholder="Search species..."
+                    <input type="text" placeholder="Search species..."
                         class="w-full p-2 bg-slate-700 border border-slate-600 rounded-md text-sm placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                         :value="taxaStore.searchTerm"
-                        @input="taxaStore.setSearchTerm(($event.target as HTMLInputElement).value)"
-                    />
+                        @input="taxaStore.setSearchTerm(($event.target as HTMLInputElement).value)" />
                     <div v-if="taxaStore.selectedTaxa.length > 0" class="mt-3 flex flex-wrap gap-1.5">
-                        <span v-for="taxon in taxaStore.selectedTaxa" :key="taxon.id" class="flex items-center bg-cyan-800/70 text-cyan-100 text-xs font-medium px-2 py-1 rounded-full">
+                        <span v-for="taxon in taxaStore.selectedTaxa" :key="taxon.id"
+                            class="flex items-center bg-cyan-800/70 text-cyan-100 text-xs font-medium px-2 py-1 rounded-full">
                             {{ taxon.name }}
-                            <button @click="taxaStore.deselectTaxon(taxon.id)" class="ml-1.5 -mr-0.5 p-0.5 rounded-full hover:bg-red-500/50" aria-label="Remove taxon">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                            <button @click="taxaStore.deselectTaxon(taxon.id)"
+                                class="ml-1.5 -mr-0.5 p-0.5 rounded-full hover:bg-red-500/50" aria-label="Remove taxon">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20"
+                                    fill="currentColor">
+                                    <path fill-rule="evenodd"
+                                        d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                        clip-rule="evenodd" />
+                                </svg>
                             </button>
                         </span>
                     </div>
                     <div class="mt-2 max-h-40 overflow-y-auto border-t border-slate-700 pt-2">
-                        <div v-if="taxaStore.availableTaxaForSelection.length > 0" v-for="taxon in taxaStore.availableTaxaForSelection.slice(0, 50)" :key="`avail-${taxon.id}`"
-                            @click="taxaStore.selectTaxon(taxon.id); taxaStore.setSearchTerm('')" class="p-2 text-sm text-slate-200 hover:bg-slate-700 rounded-md cursor-pointer">
+                        <div v-if="taxaStore.availableTaxaForSelection.length > 0"
+                            v-for="taxon in taxaStore.availableTaxaForSelection.slice(0, 50)" :key="`avail-${taxon.id}`"
+                            @click="taxaStore.selectTaxon(taxon.id); taxaStore.setSearchTerm('')"
+                            class="p-2 text-sm text-slate-200 hover:bg-slate-700 rounded-md cursor-pointer">
                             {{ taxon.name }}
                         </div>
-                        <div v-else-if="taxaStore.searchTerm" class="p-2 text-xs text-slate-500 italic">No matching taxa found.</div>
-                        <div v-else-if="taxaStore.allTaxa.length > 0 && taxaStore.availableTaxaForSelection.length === 0 && !taxaStore.searchTerm" class="p-2 text-xs text-slate-500 italic">All available taxa selected.</div>
+                        <div v-else-if="taxaStore.searchTerm" class="p-2 text-xs text-slate-500 italic">No matching taxa
+                            found.
+                        </div>
+                        <div v-else-if="taxaStore.allTaxa.length > 0 && taxaStore.availableTaxaForSelection.length === 0 && !taxaStore.searchTerm"
+                            class="p-2 text-xs text-slate-500 italic">All available taxa selected.</div>
                     </div>
                 </div>
             </div>
@@ -128,13 +139,14 @@
                         class="p-2 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
                         :class="navigation.districtObservationDisplayMode.value === 'heatmap' ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">Heatmap</button>
                 </div>
-                
+
                 <div v-if="navigation.districtObservationDisplayMode.value === 'points'" class="mt-3">
                     <label for="point-radius" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
                         <span>Point Radius</span>
                         <span class="font-mono text-cyan-300">{{ pointRadiusDisplayValue }}</span>
                     </label>
-                    <input id="point-radius" type="range" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                    <input id="point-radius" type="range"
+                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                         min="0" :max="pointRadiusOptions.length - 1" step="1" :value="pointRadiusIndex"
                         @input="onPointRadiusSliderChange(($event.target as HTMLInputElement).value)" />
                 </div>
@@ -144,7 +156,8 @@
                         <span>Grid Size</span>
                         <span class="font-mono text-cyan-300">{{ gridSliderDisplayValue }}</span>
                     </label>
-                    <input id="grid-size" type="range" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                    <input id="grid-size" type="range"
+                        class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                         min="0" :max="gridSizeOptions.length - 1" step="1" :value="gridSizeIndex"
                         @input="onGridSliderChange(($event.target as HTMLInputElement).value)" />
                 </div>
@@ -164,20 +177,27 @@
 
             <!-- Legend Section -->
             <div class="mt-auto pt-6">
-                <div v-if="mapIsInitialized && dataManager.currentStatRange.value.max > 0 && navigation.districtObservationDisplayMode.value === 'none'">
-                    <h3 class="text-sm font-medium text-slate-400 mb-2">Legend ({{ navigation.selectedMode.value }})</h3>
+                <div
+                    v-if="mapIsInitialized && dataManager.currentStatRange.value.max > 0 && navigation.districtObservationDisplayMode.value === 'none'">
+                    <h3 class="text-sm font-medium text-slate-400 mb-2">Legend ({{ navigation.selectedMode.value }})
+                    </h3>
                     <div class="legend bg-slate-700 p-3 rounded-md">
-                        <div class="h-3 md:h-4 w-full rounded-sm" :style="{ background: `linear-gradient(to right, ${choroplethColors.minStat}, ${choroplethColors.midStat}, ${choroplethColors.maxStat})` }"></div>
+                        <div class="h-3 md:h-4 w-full rounded-sm"
+                            :style="{ background: `linear-gradient(to right, ${choroplethColors.minStat}, ${choroplethColors.midStat}, ${choroplethColors.maxStat})` }">
+                        </div>
                         <div class="flex justify-between text-xs text-slate-300 mt-1">
                             <span>{{ dataManager.currentStatRange.value.min.toLocaleString() }}</span>
                             <span>{{ dataManager.currentStatRange.value.max.toLocaleString() }}</span>
                         </div>
                     </div>
                 </div>
-                <div v-if="mapIsInitialized && navigation.districtObservationDisplayMode.value === 'grid' && dataManager.gridDensityRange.value.max > 0">
+                <div
+                    v-if="mapIsInitialized && navigation.districtObservationDisplayMode.value === 'grid' && dataManager.gridDensityRange.value.max > 0">
                     <h3 class="text-sm font-medium text-slate-400 mb-2">Grid Legend (Density)</h3>
                     <div class="legend bg-slate-700 p-3 rounded-md">
-                        <div class="h-3 md:h-4 w-full rounded-sm" style="background: linear-gradient(to right, #fef0d9, #fdcc8a, #fc8d59, #e34a33, #b30000);"></div>
+                        <div class="h-3 md:h-4 w-full rounded-sm"
+                            style="background: linear-gradient(to right, #fef0d9, #fdcc8a, #fc8d59, #e34a33, #b30000);">
+                        </div>
                         <div class="flex justify-between text-xs text-slate-300 mt-1">
                             <span>{{ dataManager.gridDensityRange.value.min.toLocaleString() }}</span>
                             <span>{{ dataManager.gridDensityRange.value.max.toLocaleString() }}</span>
@@ -204,7 +224,13 @@
         <div v-if="dataManager.isLoading.value || !mapIsInitialized"
             class="absolute inset-0 z-30 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm">
             <div class="text-center">
-                <svg class="animate-spin h-8 w-8 text-cyan-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <svg class="animate-spin h-8 w-8 text-cyan-400 mx-auto mb-2" xmlns="http://www.w3.org/2000/svg"
+                    fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
                 <p class="text-lg text-slate-200">Loading Map Data...</p>
             </div>
         </div>
@@ -215,9 +241,12 @@
             :style="{ left: d3Renderer.tooltip.x.value + 'px', top: d3Renderer.tooltip.y.value + 'px', transform: 'translate(15px, 15px)' }">
             <div class="font-bold text-cyan-400 mb-1">{{ d3Renderer.tooltip.name.value }}</div>
             <div class="text-xs grid grid-cols-2 gap-x-3 gap-y-0.5">
-                <span class="text-slate-400">Observations:</span><span class="text-right font-mono">{{ d3Renderer.tooltip.observations.value?.toLocaleString() ?? 'N/A' }}</span>
-                <span class="text-slate-400">Taxa:</span><span class="text-right font-mono">{{ d3Renderer.tooltip.taxa.value?.toLocaleString() ?? 'N/A' }}</span>
-                <span class="text-slate-400">Users:</span><span class="text-right font-mono">{{ d3Renderer.tooltip.users.value?.toLocaleString() ?? 'N/A' }}</span>
+                <span class="text-slate-400">Observations:</span><span class="text-right font-mono">{{
+                    d3Renderer.tooltip.observations.value?.toLocaleString() ?? 'N/A' }}</span>
+                <span class="text-slate-400">Taxa:</span><span class="text-right font-mono">{{
+                    d3Renderer.tooltip.taxa.value?.toLocaleString() ?? 'N/A' }}</span>
+                <span class="text-slate-400">Users:</span><span class="text-right font-mono">{{
+                    d3Renderer.tooltip.users.value?.toLocaleString() ?? 'N/A' }}</span>
             </div>
         </div>
     </div>
@@ -261,7 +290,7 @@ const currentDistrictFeature = computed(() => {
 });
 
 // Logic for discrete sliders
-const pointRadiusOptions = [1, 10, 100, 1000, 10000];
+const pointRadiusOptions = [100, 1000, 10000];
 const pointRadiusIndex = computed(() => {
     const index = pointRadiusOptions.indexOf(navigation.pointRadiusMeters.value);
     return index === -1 ? 1 : index;
@@ -312,7 +341,7 @@ onMounted(async () => {
         await taxaStore.fetchAllTaxa();
         await dataManager.loadInitialDataAndStats();
         mapIsInitialized.value = true;
-        
+
         // Explicitly render after everything is loaded.
         d3Renderer.renderFeatures(dataManager.featuresToDisplay.value as any);
     } else {
@@ -362,7 +391,7 @@ watch(
 // watcher above, so dedicated empty watchers for them here are not necessary.
 
 </script>
-        
+
 
 
 <style scoped>
@@ -370,13 +399,16 @@ watch(
 .control-dropdown {
     @reference p-2 md:p-3 border border-slate-600 rounded-md text-sm w-full bg-slate-700/80 text-slate-100 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none backdrop-blur-sm shadow transition-all duration-150 ease-in-out;
 }
+
 .control-dropdown:disabled {
     @reference bg-slate-800/70 text-slate-500 cursor-not-allowed opacity-70;
 }
+
 .control-dropdown option {
     /* For some browsers, option styling is limited. This works in Firefox. */
     @reference bg-slate-700 text-white;
 }
+
 .region {
     cursor: pointer;
 }
