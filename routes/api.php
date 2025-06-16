@@ -6,7 +6,7 @@ use App\Http\Controllers\Api\{
     MapController,
     RegionBoundaryController,
     RegionStatsController,
-    DistrictDataController,
+    ObservationDataController,
     TaxaController,
     TrendController,
     SpeciesController,
@@ -56,8 +56,12 @@ Route::prefix('v1')->group(function () {
     Route::get('map/spread', [MapController::class, 'spread']);
     Route::get('map/richness', [MapController::class, 'richness']);
 
+    Route::prefix('states/{state}')->group(function (){
+        Route::get('observations', [ObservationDataController::class, 'byState']);
+    });
+
     Route::prefix('districts/{district}')->group(function (){
-        Route::get('observations', [DistrictDataController::class, 'districtObservations']);
+        Route::get('observations', [ObservationDataController::class, 'byDistrict']);
     });
 
     // // 2. Temporal Trends
