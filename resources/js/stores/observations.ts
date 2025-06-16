@@ -18,14 +18,8 @@ export interface ObservationPoint {
  * Defines the shape of the observations store's state.
  */
 interface ObservationStoreState {
-    /**
-     * MODIFIED: Caches observation points in a nested structure.
-     * The first key is the district ID.
-     * The second key is a filter-based cache key (e.g., 'all' or '123,456').
-     * The value is the array of points for that district and filter.
-     * e.g., { 123: { 'all': [ObservationPoint, ...], '45,67': [ObservationPoint, ...] } }
-     */
     allDistrictObservations: Record<string | number, Record<string, ObservationPoint[]>>;
+    allStateObservations: Record<string | number, Record<string, ObservationPoint[]>>;
     loading: Record<string, boolean>; // Use dynamic loading keys
     error: string | null;
 }
@@ -33,9 +27,9 @@ interface ObservationStoreState {
 // Helper function to create a consistent cache key from an array of IDs
 const createCacheKey = (ids?: number[]): string => {
     if (!ids || ids.length === 0) {
-        return 'all'; // Default key when no filter is applied
+        return 'all';
     }
-    // Create a consistent, sorted key to ensure [1,2] and [2,1] are treated the same
+
     return [...ids].sort((a, b) => a - b).join(',');
 };
 
@@ -43,16 +37,18 @@ const createCacheKey = (ids?: number[]): string => {
 export const useObservationStore = defineStore('observations', {
     state: (): ObservationStoreState => ({
         allDistrictObservations: {},
+        allStateObservations: {},
         loading: {},
         error: null,
     }),
 
     getters: {
-        /**
-         * UPDATED: A getter that returns a function to safely get points for a specific district
-         * and a specific taxa filter.
-         * Returns an empty array if the data isn't cached yet.
-         */
+        getStateObservations: (state) => {
+            return (stateId: string | number, taxaIds?: number[]): ObservationPoint[] => {
+                const cacheKey = createCacheKey(taxaIds);
+                return state.allStateObservations[stateId]?.[cacheKey] || [];
+            }
+        },
         getDistrictObservations: (state) => {
             return (districtId: string | number, taxaIds?: number[]): ObservationPoint[] => {
                 const cacheKey = createCacheKey(taxaIds);
@@ -62,10 +58,40 @@ export const useObservationStore = defineStore('observations', {
     },
 
     actions: {
-        /**
-         * UPDATED: Fetches observation points for a given district from the API, now accepting a taxa filter.
-         * Implements caching based on both districtId and the taxa filter.
-         */
+        async fetchStateObservations(payload: {stateId: string|number; taxaIds?: number[]; forceRefresh?: boolean}) {
+            const {stateId, taxaIds, forceRefresh = false} = payload;
+            if(!stateId) return;
+
+            const cacheKey = createCacheKey(taxaIds);
+
+            if(this.allStateObservations[stateId]?.[cacheKey] && !forceRefresh){
+                console.log(`Using cached observation points for state ${stateId} with filter: ${cacheKey}`);
+                return;
+            }
+
+            const loadingKey = `state_${stateId}_${cacheKey}`;
+            this.loading[loadingKey] = true;
+            this.error = null;
+
+            try {
+                const params = taxaIds?.length ? {taxa_ids: taxaIds.join(',')} : {};
+                const response = await api.get<ObservationPoint[]>(`/states/${stateId}/observations`, {params});
+
+                if(!this.allStateObservations[stateId]){
+                    this.allStateObservations[stateId] = {};
+                }
+                this.allStateObservations[stateId][cacheKey] = response.data;
+                console.log(`Fetched and cached ${this.allStateObservations[stateId][cacheKey]?.length || 0} observations from state ${stateId} with filter: ${cacheKey}`);
+            } catch (e: any) {
+                this.error('fetchStateObservations error: ', e);
+                if(this.allStateObservations[stateId]){
+                    delete this.allStateObservations[stateId][cacheKey];
+                }
+            } finally {
+                this.loading[loadingKey] = false;
+            }
+        },
+
         async fetchDistrictObservations(payload: { districtId: string | number; taxaIds?: number[]; forceRefresh?: boolean }) {
             const { districtId, taxaIds, forceRefresh = false } = payload;
 
