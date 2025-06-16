@@ -142,7 +142,7 @@
 
                 <div v-if="navigation.districtObservationDisplayMode.value === 'points'" class="mt-3">
                     <label for="point-radius" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
-                        <span>Point Radius</span>
+                        <span>Point Size</span>
                         <span class="font-mono text-cyan-300">{{ pointRadiusDisplayValue }}</span>
                     </label>
                     <input id="point-radius" type="range"
@@ -150,6 +150,7 @@
                         min="0" :max="pointRadiusOptions.length - 1" step="1" :value="pointRadiusIndex"
                         @input="onPointRadiusSliderChange(($event.target as HTMLInputElement).value)" />
                 </div>
+
 
                 <div v-if="navigation.districtObservationDisplayMode.value === 'grid'" class="mt-3">
                     <label for="grid-size" class="flex justify-between text-xs font-medium text-slate-400 mb-1">
@@ -163,16 +164,16 @@
                 </div>
 
                 <div v-if="navigation.districtObservationDisplayMode.value === 'heatmap'" class="mt-3">
-                    <h4 class="text-xs font-medium text-slate-400 mb-2">Intensity</h4>
-                    <div class="mode-selector grid grid-cols-3 gap-1 p-1 bg-slate-900/50 rounded-md">
-                        <button v-for="intensity in (['low', 'medium', 'high'] as const)" :key="intensity"
-                            @click="navigation.setHeatmapIntensity(intensity)"
-                            class="p-1.5 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                            :class="navigation.heatmapIntensity.value === intensity ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
-                            {{ intensity.charAt(0).toUpperCase() + intensity.slice(1) }}
-                        </button>
-                    </div>
-                </div>
+        <h4 class="text-xs font-medium text-slate-400 mb-2">Heatmap Intensity</h4>
+        <div class="mode-selector grid grid-cols-3 gap-1 p-1 bg-slate-900/50 rounded-md">
+            <button v-for="intensity in (['low', 'medium', 'high'] as const)" :key="intensity"
+                    @click="navigation.setHeatmapIntensity(intensity)"
+                    class="p-1.5 text-xs md:text-sm rounded transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    :class="navigation.heatmapIntensity.value === intensity ? 'bg-cyan-600 text-white font-semibold shadow-md' : 'bg-slate-600 hover:bg-slate-500 text-slate-200'">
+                {{ intensity.charAt(0).toUpperCase() + intensity.slice(1) }}
+            </button>
+        </div>
+    </div>
             </div>
 
             <!-- Legend Section -->
@@ -290,7 +291,7 @@ const currentDistrictFeature = computed(() => {
 });
 
 // Logic for discrete sliders
-const pointRadiusOptions = [100, 1000, 10000];
+const pointRadiusOptions = [100, 500,1000, 2500, 5000, 10000];
 const pointRadiusIndex = computed(() => {
     const index = pointRadiusOptions.indexOf(navigation.pointRadiusMeters.value);
     return index === -1 ? 1 : index;
